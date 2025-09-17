@@ -2,6 +2,8 @@ import { useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import axios from "axios";
 import { jwtDecode } from "jwt-decode";
+import { doc, setDoc } from "firebase/firestore";
+import { db } from "./firebase";
 
 function Callback() {
   const location = useLocation();
@@ -33,11 +35,25 @@ function Callback() {
           );
 
           const { id_token } = res.data;
-          const profile = jwtDecode(id_token);
-          console.log("profile", profile);
+          const decoded = jwtDecode(id_token);
 
-          // ✅ เก็บข้อมูลผู้ใช้ลง localStorage
-          localStorage.setItem("lineUser", JSON.stringify(profile));
+          // ✅ Map field ให้ตรงกับ LoginButton.jsx
+          const userData = {
+            userId: decoded.sub, // ใช้เป็น primary key
+            name: decoded.name,
+            email: decoded.email || "",
+            picture: decoded.picture || "",
+          };
+
+          console.log("LINE userData", userData);
+
+          // เก็บใน localStorage
+          localStorage.setItem("lineUser", JSON.stringify(userData));
+
+          // ✅ บันทึกลง Firestore
+          await setDoc(doc(db, "users", userData.userId), userData, {
+            merge: true,
+          });
 
           // กลับไปหน้าแรก
           navigate("/");
