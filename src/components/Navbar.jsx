@@ -1,50 +1,59 @@
+import { Link, useNavigate } from "react-router-dom";
+import { useAuth } from "../AuthContext";
+
 function Navbar() {
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
+
+  const handleLogout = () => {
+    logout();
+    navigate("/");
+  };
+
   return (
-    <nav className="navbar navbar-expand-lg navbar-dark bg-dark fixed-top px-3">
-      <a className="navbar-brand" href="/">
+    <nav className="navbar navbar-dark bg-dark fixed-top px-3 d-flex justify-content-between align-items-center">
+      {/* โลโก้ */}
+      <Link className="navbar-brand" to="/">
         My App
-      </a>
+      </Link>
 
-      <button
-        className="navbar-toggler"
-        type="button"
-        data-bs-toggle="collapse"
-        data-bs-target="#navbarNav"
-        aria-controls="navbarNav"
-        aria-expanded="false"
-        aria-label="Toggle navigation"
-      >
-        <span className="navbar-toggler-icon"></span>
-      </button>
+      {/* เมนู */}
+      <div className="d-flex align-items-center gap-2">
+        <Link className="btn btn-outline-light btn-sm" to="/dashboard">
+          Dashboard
+        </Link>
+        <Link className="btn btn-outline-light btn-sm" to="/bills">
+          Bills
+        </Link>
+        <Link className="btn btn-outline-light btn-sm" to="/timeline">
+          Timeline
+        </Link>
+        <Link className="btn btn-outline-light btn-sm" to="/calendar">
+          Calendar
+        </Link>
 
-      <div className="collapse navbar-collapse" id="navbarNav">
-        <ul className="navbar-nav ms-auto">
-          <li className="nav-item">
-            <a className="nav-link" href="/dashboard">
-              Dashboard
-            </a>
-          </li>
-          <li className="nav-item">
-            <a className="nav-link" href="/bills">
-              Bills
-            </a>
-          </li>
-          <li className="nav-item">
-            <a className="nav-link" href="/timeline">
-              Timeline
-            </a>
-          </li>
-          <li className="nav-item">
-            <a className="nav-link" href="/calendar">
-              Calendar
-            </a>
-          </li>
-          <li className="nav-item">
-            <a className="nav-link" href="/profile">
-              Profile
-            </a>
-          </li>
-        </ul>
+        {user ? (
+          <div className="d-flex align-items-center ms-3">
+            <img
+              src={user.picture}
+              alt="profile"
+              style={{
+                width: "30px",
+                height: "30px",
+                borderRadius: "50%",
+                marginRight: "8px",
+              }}
+            />
+            <span className="text-white me-2">{user.name}</span>
+            <button onClick={handleLogout} className="btn btn-sm btn-danger">
+              Logout
+            </button>
+          </div>
+        ) : (
+          <Link className="btn btn-outline-light btn-sm" to="/">
+            Login
+          </Link>
+        )}
       </div>
     </nav>
   );

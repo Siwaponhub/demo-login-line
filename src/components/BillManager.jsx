@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { createBill, addMemberToBill } from "../services/billService";
+import { Link } from "react-router-dom";
 
 function BillManager() {
   const [tripName, setTripName] = useState("");
@@ -21,21 +22,43 @@ function BillManager() {
   };
 
   return (
-    <div className="p-3">
-      <h3>จัดการบิลทริป</h3>
-      <input
-        type="text"
-        className="form-control mb-2"
-        value={tripName}
-        onChange={(e) => setTripName(e.target.value)}
-        placeholder="ชื่อทริป"
-      />
-      <button onClick={handleCreate} className="btn btn-primary me-2">
-        สร้างบิล
-      </button>
-      <button onClick={handleAddMember} className="btn btn-secondary">
-        เพิ่มเพื่อน
-      </button>
+    <div className="container mt-4">
+      <div className="card shadow rounded-4 p-3">
+        <h3 className="mb-3 text-primary">จัดการบิลทริป</h3>
+        <input
+          type="text"
+          className="form-control mb-3"
+          value={tripName}
+          onChange={(e) => setTripName(e.target.value)}
+          placeholder="ชื่อทริป"
+        />
+        <div className="d-flex gap-2">
+          <button onClick={handleCreate} className="btn btn-success flex-fill">
+            สร้างบิล
+          </button>
+          <button
+            onClick={handleAddMember}
+            className="btn btn-outline-primary flex-fill"
+          >
+            เพิ่มเพื่อน
+          </button>
+        </div>
+      </div>
+
+      <div className="text-center mt-4">
+        <Link
+          to="/"
+          className="d-block p-3 shadow rounded-4 text-decoration-none"
+          style={{
+            backgroundColor: "#f8f9fa",
+            border: "2px solid #dee2e6",
+            fontWeight: "500",
+            color: "#333",
+          }}
+        >
+          Home
+        </Link>
+      </div>
     </div>
   );
 }

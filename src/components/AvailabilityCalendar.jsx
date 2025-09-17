@@ -1,11 +1,14 @@
 import { useState } from "react";
 import { saveAvailability } from "../services/userService";
+import { Link } from "react-router-dom";
 
 function AvailabilityCalendar() {
   const [dates, setDates] = useState([]);
 
   const handleAddDate = (e) => {
-    setDates([...dates, e.target.value]);
+    if (e.target.value && !dates.includes(e.target.value)) {
+      setDates([...dates, e.target.value]);
+    }
   };
 
   const handleSave = async () => {
@@ -14,21 +17,42 @@ function AvailabilityCalendar() {
   };
 
   return (
-    <div className="p-3">
-      <h3>ปฏิทินวันว่าง</h3>
-      <input
-        type="date"
-        className="form-control mb-2"
-        onChange={handleAddDate}
-      />
-      <ul>
-        {dates.map((d, i) => (
-          <li key={i}>{d}</li>
-        ))}
-      </ul>
-      <button onClick={handleSave} className="btn btn-info">
-        บันทึกวันว่าง
-      </button>
+    <div className="container mt-4">
+      <div className="card shadow rounded-4 p-3">
+        <h3 className="mb-3 text-info">ปฏิทินวันว่าง</h3>
+        <input
+          type="date"
+          className="form-control mb-3"
+          onChange={handleAddDate}
+        />
+
+        <ul className="list-group mb-3">
+          {dates.map((d, i) => (
+            <li key={i} className="list-group-item">
+              {d}
+            </li>
+          ))}
+        </ul>
+
+        <button onClick={handleSave} className="btn btn-info w-100">
+          💾 บันทึกวันว่าง
+        </button>
+      </div>
+
+      <div className="text-center mt-4">
+        <Link
+          to="/"
+          className="d-block p-3 shadow rounded-4 text-decoration-none"
+          style={{
+            backgroundColor: "#f8f9fa",
+            border: "2px solid #dee2e6",
+            fontWeight: "500",
+            color: "#333",
+          }}
+        >
+          Home
+        </Link>
+      </div>
     </div>
   );
 }

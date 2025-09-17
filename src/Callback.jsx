@@ -2,71 +2,94 @@ import { useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import axios from "axios";
 import { jwtDecode } from "jwt-decode";
-import { doc, setDoc } from "firebase/firestore";
+import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "./firebase";
+import { useAuth } from "./AuthContext";
 
 function Callback() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { login } = useAuth(); // ใช้ context
 
   useEffect(() => {
     const fetchToken = async () => {
       const query = new URLSearchParams(location.search);
       const code = query.get("code");
 
-      if (code) {
-        try {
-          const data = new URLSearchParams();
-          data.append("grant_type", "authorization_code");
-          data.append("code", code);
-          data.append("redirect_uri", import.meta.env.VITE_LINE_REDIRECT_URI);
-          data.append("client_id", import.meta.env.VITE_LINE_CHANNEL_ID);
-          data.append(
-            "client_secret",
-            import.meta.env.VITE_LINE_CHANNEL_SECRET
-          );
+      if (!code) return;
 
-          const res = await axios.post(
-            "https://api.line.me/oauth2/v2.1/token",
-            data,
-            {
-              headers: { "Content-Type": "application/x-www-form-urlencoded" },
-            }
-          );
+      try {
+        // 1. แลก token
+        const data = new URLSearchParams();
+        data.append("grant_type", "authorization_code");
+        data.append("code", code);
+        data.append("redirect_uri", import.meta.env.VITE_LINE_REDIRECT_URI);
+        data.append("client_id", import.meta.env.VITE_LINE_CHANNEL_ID);
+        data.append("client_secret", import.meta.env.VITE_LINE_CHANNEL_SECRET);
 
-          const { id_token } = res.data;
-          const decoded = jwtDecode(id_token);
+        const res = await axios.post(
+          "https://api.line.me/oauth2/v2.1/token",
+          data,
+          { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
+        );
 
-          // ✅ Map field ให้ตรงกับ LoginButton.jsx
-          const userData = {
-            userId: decoded.sub, // ใช้เป็น primary key
-            name: decoded.name,
-            email: decoded.email || "",
-            picture: decoded.picture || "",
-          };
+        const { id_token } = res.data;
+        const decoded = jwtDecode(id_token);
 
-          console.log("LINE userData", userData);
+        // 2. Map ข้อมูลผู้ใช้
+        const userData = {
+          userId: decoded.sub, // LINE user id
+          name: decoded.name || "Unknown",
+          email: decoded.email || "",
+          picture: decoded.picture || "",
+          lastLogin: serverTimestamp(),
+        };
 
-          // เก็บใน localStorage
-          localStorage.setItem("lineUser", JSON.stringify(userData));
+        console.log("LINE userData", userData);
 
-          // ✅ บันทึกลง Firestore
-          await setDoc(doc(db, "users", userData.userId), userData, {
-            merge: true,
-          });
+        // 3. เก็บใน localStorage + context
+        localStorage.setItem("lineUser", JSON.stringify(userData));
+        login(userData);
 
-          // กลับไปหน้าแรก
-          navigate("/");
-        } catch (error) {
-          console.error("Error fetching token:", error);
-        }
+        // 4. บันทึกลง Firestore
+        await setDoc(doc(db, "users", userData.userId), userData, {
+          merge: true,
+        });
+
+        // 5. redirect ไป dashboard
+        navigate("/dashboard");
+      } catch (error) {
+        console.error("Error fetching token:", error);
       }
     };
 
     fetchToken();
-  }, [location, navigate]);
+  }, [location, navigate, login]);
 
-  return <div>กำลังล็อกอินด้วย LINE...</div>;
+  return (
+    // <div className="d-flex flex-column align-items-center justify-content-center vh-100">
+    //   <img
+    //     src="https://upload.wikimedia.org/wikipedia/commons/4/41/LINE_logo.svg"
+    //     alt="LINE Logo"
+    //     style={{ width: "60px", marginBottom: "15px" }}
+    //   />
+    //   <div
+    //     className="spinner-border text-success mb-3"
+    //     style={{ width: "3rem", height: "3rem" }}
+    //   ></div>
+    //   <h5 className="text-success">กำลังล็อกอินด้วย LINE...</h5>
+    // </div>
+    <div className="d-flex flex-column align-items-center justify-content-center vh-100">
+      <div
+        className="spinner-border text-success mb-3"
+        style={{ width: "3rem", height: "3rem" }}
+        role="status"
+      >
+        <span className="visually-hidden">Loading...</span>
+      </div>
+      <h5 className="text-muted">กำลังล็อกอินด้วย LINE...</h5>
+    </div>
+  );
 }
 
 export default Callback;
