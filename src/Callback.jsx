@@ -26,6 +26,13 @@ function Callback() {
         data.append("redirect_uri", import.meta.env.VITE_LINE_REDIRECT_URI);
         data.append("client_id", import.meta.env.VITE_LINE_CHANNEL_ID);
         data.append("client_secret", import.meta.env.VITE_LINE_CHANNEL_SECRET);
+        console.log("Token request params", {
+          grant_type: "authorization_code",
+          code,
+          redirect_uri: import.meta.env.VITE_LINE_REDIRECT_URI,
+          client_id: import.meta.env.VITE_LINE_CHANNEL_ID,
+          client_secret: import.meta.env.VITE_LINE_CHANNEL_SECRET,
+        });
 
         const res = await axios.post(
           "https://api.line.me/oauth2/v2.1/token",
