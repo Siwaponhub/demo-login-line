@@ -6,7 +6,8 @@ import Timeline from "./components/Timeline";
 import AvailabilityCalendar from "./components/AvailabilityCalendar";
 import Callback from "./Callback";
 import Dashboard from "./components/Dashboard";
-import Profile from "./components/Profile"; // ✅ import Profile
+import Profile from "./components/Profile";
+import Menu from "./components/Menu";
 import { useAuth } from "./AuthContext";
 
 function App() {
@@ -17,9 +18,10 @@ function App() {
       <Routes>
         <Route
           path="/"
-          element={user ? <Navigate to="/dashboard" /> : <LoginButton />}
+          element={user ? <Navigate to="/menu" /> : <LoginButton />}
         />
         <Route path="/callback" element={<Callback />} />
+        <Route path="/menu" element={user ? <Menu /> : <Navigate to="/" />} />
         <Route
           path="/dashboard"
           element={user ? <Dashboard /> : <Navigate to="/" />}
@@ -39,8 +41,8 @@ function App() {
         <Route
           path="/profile"
           element={user ? <Profile /> : <Navigate to="/" />}
-        />{" "}
-        {/* ✅ */}
+        />
+        <Route path="*" element={<Navigate to="/" />} />
       </Routes>
     </Layout>
   );

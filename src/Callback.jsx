@@ -57,7 +57,7 @@ function Callback() {
         });
 
         // 5. redirect ไป dashboard
-        navigate("/dashboard");
+        navigate("/menu");
       } catch (error) {
         console.error("Error fetching token:", error);
       }
