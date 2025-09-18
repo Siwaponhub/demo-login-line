@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { addTimeline } from "../services/timelineService";
 import { Link } from "react-router-dom";
+import BackHomeButtons from "./BackHomeButtons";
 
 function Timeline() {
   const [activity, setActivity] = useState("");
@@ -32,21 +33,7 @@ function Timeline() {
           ➕ เพิ่มกิจกรรม
         </button>
       </div>
-
-      <div className="text-center mt-4">
-        <Link
-          to="/"
-          className="d-block p-3 shadow rounded-4 text-decoration-none"
-          style={{
-            backgroundColor: "#f8f9fa",
-            border: "2px solid #dee2e6",
-            fontWeight: "500",
-            color: "#333",
-          }}
-        >
-          Home
-        </Link>
-      </div>
+      <BackHomeButtons />
     </div>
   );
 }
