@@ -1,25 +1,12 @@
 import { db } from "../firebase";
-import {
-  collection,
-  addDoc,
-  doc,
-  updateDoc,
-  arrayUnion,
-} from "firebase/firestore";
+import { collection, addDoc } from "firebase/firestore";
 
-export async function createBill(tripName, createdBy) {
+export async function createBill(tripName, ownerId, totalAmount, members) {
   return await addDoc(collection(db, "bills"), {
     tripName,
-    createdBy,
-    members: [],
-    payments: [],
+    ownerId,
+    totalAmount,
+    members,
     createdAt: new Date(),
-  });
-}
-
-export async function addMemberToBill(billId, member) {
-  const billRef = doc(db, "bills", billId);
-  return await updateDoc(billRef, {
-    members: arrayUnion(member),
   });
 }
