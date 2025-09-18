@@ -66,7 +66,11 @@ function Callback() {
         // 5. redirect ไป dashboard
         navigate("/menu");
       } catch (error) {
-        console.error("Error fetching token:", error);
+        if (error.response) {
+          console.error("❌ LINE token error:", error.response.data);
+        } else {
+          console.error("❌ LINE token error:", error);
+        }
       }
     };
 
