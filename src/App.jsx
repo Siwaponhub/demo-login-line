@@ -8,6 +8,9 @@ import Callback from "./Callback";
 import Dashboard from "./components/Dashboard";
 import Profile from "./components/Profile";
 import Menu from "./components/Menu";
+import CreateGroup from "./components/CreateGroup";
+import JoinGroup from "./components/JoinGroup";
+import GroupDetail from "./components/GroupDetail";
 import { useAuth } from "./AuthContext";
 
 function App() {
@@ -27,6 +30,10 @@ function App() {
           element={user ? <Dashboard /> : <Navigate to="/" />}
         />
         <Route
+          path="/group/:id"
+          element={user ? <GroupDetail /> : <Navigate to="/" />}
+        />
+        <Route
           path="/bills"
           element={user ? <BillManager /> : <Navigate to="/" />}
         />
@@ -41,6 +48,14 @@ function App() {
         <Route
           path="/profile"
           element={user ? <Profile /> : <Navigate to="/" />}
+        />
+        <Route
+          path="/creategroup"
+          element={user ? <CreateGroup /> : <Navigate to="/" />}
+        />
+        <Route
+          path="/join"
+          element={user ? <JoinGroup /> : <Navigate to="/" />}
         />
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>

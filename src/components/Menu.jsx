@@ -6,16 +6,17 @@ function Menu() {
 
   const menuItems = [
     { name: "Dashboard", path: "/dashboard", icon: "📊" },
-    { name: "Bills", path: "/bills", icon: "💰" },
-    { name: "Timeline", path: "/timeline", icon: "🗓️" },
-    { name: "Calendar", path: "/calendar", icon: "📅" },
+    // { name: "Bills", path: "/bills", icon: "💰" },
+    // { name: "Timeline", path: "/timeline", icon: "🗓️" },
+    // { name: "Calendar", path: "/calendar", icon: "📅" },
     { name: "Profile", path: "/profile", icon: "👤" },
+    { name: "Create Group", path: "/creategroup", icon: "➕" }, // ✅ new
+    { name: "Join Group", path: "/join", icon: "🔗" }, // ✅ new
   ];
 
   return (
     <div className="container pt-4">
       <div className="row g-3">
-        {/* แสดงปุ่มเมนูหลัก */}
         {menuItems.map((item) => (
           <div className="col-6 col-md-4 col-lg-3" key={item.path}>
             <Link
@@ -29,12 +30,15 @@ function Menu() {
           </div>
         ))}
 
-        {/* ปุ่ม Login / Logout */}
         <div className="col-6 col-md-4 col-lg-3">
           {user ? (
             <div
               className="btn btn-outline-danger w-100 h-100 d-flex flex-column align-items-center justify-content-center p-4 shadow rounded-4"
-              style={{ minHeight: "120px", fontSize: "18px" }}
+              style={{
+                minHeight: "120px",
+                fontSize: "18px",
+                cursor: "pointer",
+              }}
               onClick={logout}
             >
               <img

@@ -1,57 +1,121 @@
 import { useEffect, useState } from "react";
-import { collection, getDocs } from "firebase/firestore";
+import { collection, getDocs, doc, deleteDoc } from "firebase/firestore";
 import { db } from "../firebase";
+import { useAuth } from "../AuthContext";
+import Swal from "sweetalert2";
 import BackHomeButtons from "./BackHomeButtons";
+import { Link } from "react-router-dom";
 
 function Dashboard() {
-  const [users, setUsers] = useState([]);
+  const { user } = useAuth();
+  const [groups, setGroups] = useState([]);
 
   useEffect(() => {
-    const fetchUsers = async () => {
+    const fetchGroups = async () => {
       try {
-        const querySnapshot = await getDocs(collection(db, "users"));
-        const usersData = querySnapshot.docs.map((doc) => ({
+        const querySnapshot = await getDocs(collection(db, "groups"));
+        const groupData = querySnapshot.docs.map((doc) => ({
           id: doc.id,
           ...doc.data(),
         }));
-        setUsers(usersData);
+        const userGroups = groupData.filter((g) =>
+          g.members?.some((m) => m.userId === user?.userId)
+        );
+        setGroups(userGroups);
       } catch (err) {
-        console.error("Error fetching users:", err);
+        console.error("Error fetching groups:", err);
       }
     };
 
-    fetchUsers();
-  }, []);
+    if (user) fetchGroups();
+  }, [user]);
+
+  const handleDeleteGroup = async (groupId) => {
+    const result = await Swal.fire({
+      icon: "warning",
+      title: "ลบกลุ่ม?",
+      text: "คุณแน่ใจหรือไม่ว่าต้องการลบกลุ่มนี้?",
+      showCancelButton: true,
+      confirmButtonText: "ลบ",
+      cancelButtonText: "ยกเลิก",
+      confirmButtonColor: "#dc3545",
+    });
+    if (!result.isConfirmed) return;
+
+    try {
+      await deleteDoc(doc(db, "groups", groupId));
+      Swal.fire("✅ สำเร็จ", "ลบกลุ่มเรียบร้อย", "success");
+      setGroups(groups.filter((g) => g.id !== groupId));
+    } catch (err) {
+      console.error(err);
+      Swal.fire("❌ ผิดพลาด", "ไม่สามารถลบกลุ่มได้", "error");
+    }
+  };
 
   return (
     <div className="container mt-4">
-      <h3 className="mb-4 fw-bold">👥 รายชื่อผู้ใช้งาน</h3>
+      <h3 className="mb-4 fw-bold text-primary">👥 กลุ่มของฉัน</h3>
 
-      {users.length === 0 ? (
-        <p className="text-muted">ยังไม่มีผู้ใช้งานในระบบ</p>
+      {groups.length === 0 ? (
+        <div className="alert alert-secondary text-center">
+          คุณยังไม่ได้เข้าร่วมกลุ่มใด
+        </div>
       ) : (
-        <div className="list-group shadow-sm rounded-3">
-          {users.map((user) => (
-            <div
-              key={user.id}
-              className="list-group-item list-group-item-action d-flex align-items-center"
-            >
-              <img
-                src={user.picture || "https://via.placeholder.com/50"}
-                alt={user.name}
-                className="rounded-circle me-3 shadow-sm"
-                style={{ width: "50px", height: "50px", objectFit: "cover" }}
-              />
-              <div>
-                <h6 className="mb-0 fw-bold">{user.name}</h6>
-                <small className="text-muted">
-                  {user.email || "ไม่มีอีเมล"}
-                </small>
+        <div className="row g-3">
+          {groups.map((group) => (
+            <div key={group.id} className="col-12 col-md-6">
+              <div className="card shadow rounded-4 h-100">
+                <div className="card-body d-flex flex-column">
+                  {/* Header */}
+                  <div className="d-flex justify-content-between align-items-center mb-3">
+                    <h5 className="card-title fw-bold mb-0">{group.name}</h5>
+                    <div className="d-flex gap-2">
+                      <Link
+                        to={`/group/${group.id}`}
+                        className="btn btn-sm btn-outline-primary"
+                      >
+                        🔍 ดูรายละเอียด
+                      </Link>
+                      {user?.userId === group.ownerId && (
+                        <button
+                          className="btn btn-sm btn-outline-danger"
+                          onClick={() => handleDeleteGroup(group.id)}
+                        >
+                          🗑️ ลบ
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="d-flex align-items-center flex-wrap gap-2">
+                    {group.members?.slice(0, 5).map((member) => (
+                      <img
+                        key={member.userId}
+                        src={member.picture || "https://via.placeholder.com/40"}
+                        alt={member.name}
+                        className="rounded-circle shadow-sm"
+                        style={{
+                          width: "40px",
+                          height: "40px",
+                          objectFit: "cover",
+                          border: "2px solid #fff",
+                        }}
+                        title={member.name}
+                      />
+                    ))}
+                    {group.members?.length > 5 && (
+                      <span className="text-muted small">
+                        +{group.members.length - 5} เพิ่มเติม
+                      </span>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
           ))}
         </div>
       )}
+
       <BackHomeButtons />
     </div>
   );
