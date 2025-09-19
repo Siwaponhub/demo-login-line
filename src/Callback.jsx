@@ -2,7 +2,14 @@ import { useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import axios from "axios";
 import { jwtDecode } from "jwt-decode";
-import { doc, setDoc, serverTimestamp } from "firebase/firestore";
+import {
+  doc,
+  setDoc,
+  serverTimestamp,
+  getDoc,
+  updateDoc,
+  arrayUnion,
+} from "firebase/firestore";
 import { db } from "./firebase";
 import { useAuth } from "./AuthContext";
 
@@ -19,6 +26,7 @@ function Callback() {
       if (!code) return;
 
       try {
+        // 1. แลก token จาก LINE
         const data = new URLSearchParams();
         data.append("grant_type", "authorization_code");
         data.append("code", code);
@@ -35,17 +43,20 @@ function Callback() {
         const { id_token } = res.data;
         const decoded = jwtDecode(id_token);
 
+        // 2. ข้อมูล user
         const userData = {
           userId: decoded.sub,
           name: decoded.name || "Unknown",
           picture: decoded.picture || "",
-          email: decoded.email,
+          email: decoded.email || "",
           lastLogin: serverTimestamp(),
         };
 
+        // 3. เก็บ user ใน localStorage + context
         localStorage.setItem("lineUser", JSON.stringify(userData));
         login(userData);
 
+        // 4. บันทึก user ลง Firestore
         await setDoc(
           doc(db, "users", userData.userId),
           {
@@ -55,6 +66,36 @@ function Callback() {
           { merge: true }
         );
 
+        // 5. เช็คว่ามี group pending อยู่ไหม
+        const pendingGroupId = localStorage.getItem("pendingGroupId");
+        if (pendingGroupId) {
+          const ref = doc(db, "groups", pendingGroupId);
+          const snap = await getDoc(ref);
+
+          if (snap.exists()) {
+            const group = snap.data();
+            const alreadyIn = group.members?.some(
+              (m) => m.userId === userData.userId
+            );
+
+            if (!alreadyIn) {
+              await updateDoc(ref, {
+                members: arrayUnion({
+                  userId: userData.userId,
+                  name: userData.name,
+                  email: userData.email,
+                  picture: userData.picture,
+                }),
+              });
+            }
+
+            localStorage.removeItem("pendingGroupId");
+            navigate(`/group/${pendingGroupId}`); // ✅ ไปหน้า group โดยตรง
+            return;
+          }
+        }
+
+        // ถ้าไม่มี group → ไปหน้า menu
         navigate("/menu");
       } catch (error) {
         if (error.response) {

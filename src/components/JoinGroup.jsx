@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { db } from "../firebase";
 import { doc, getDoc, updateDoc, arrayUnion } from "firebase/firestore";
 import { useAuth } from "../AuthContext";
@@ -8,18 +8,26 @@ import Swal from "sweetalert2";
 
 function JoinGroup() {
   const location = useLocation();
+  const navigate = useNavigate();
   const { user } = useAuth();
   const [groupId, setGroupId] = useState("");
-  const [status, setStatus] = useState("");
 
   useEffect(() => {
     const query = new URLSearchParams(location.search);
     const gid = query.get("groupId");
+
     if (gid) {
       setGroupId(gid);
-      handleJoin(gid);
+
+      if (!user) {
+        // ✅ ยังไม่ login → เก็บ groupId ไว้ใน localStorage
+        localStorage.setItem("pendingGroupId", gid);
+        navigate("/"); // กลับไปหน้า login
+      } else {
+        handleJoin(gid);
+      }
     }
-  }, [location]);
+  }, [location, user]);
 
   const handleJoin = async (gid) => {
     if (!user) return;
@@ -42,18 +50,16 @@ function JoinGroup() {
       }
 
       await updateDoc(ref, {
-        members: [
-          ...(group.members || []),
-          {
-            userId: user.userId,
-            name: user.name,
-            email: user.email,
-            picture: user.picture,
-          },
-        ],
+        members: arrayUnion({
+          userId: user.userId,
+          name: user.name,
+          email: user.email,
+          picture: user.picture,
+        }),
       });
 
       Swal.fire("✅ เข้าร่วมกลุ่มเรียบร้อย", "", "success");
+      navigate(`/group/${gid}`); // ไปหน้ารายละเอียดกลุ่ม
     } catch (err) {
       console.error(err);
       Swal.fire("⚠️ มีข้อผิดพลาด", "", "error");
@@ -76,7 +82,6 @@ function JoinGroup() {
       >
         เข้าร่วม
       </button>
-      {status && <div className="alert alert-info">{status}</div>}
       <BackHomeButtons />
     </div>
   );
