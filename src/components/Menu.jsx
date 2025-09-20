@@ -8,7 +8,7 @@ function Menu() {
     { name: "Dashboard", path: "/dashboard", icon: "📊" },
     // { name: "Bills", path: "/bills", icon: "💰" },
     // { name: "Timeline", path: "/timeline", icon: "🗓️" },
-    // { name: "Calendar", path: "/calendar", icon: "📅" },
+    { name: "Calendar", path: "/calendar", icon: "📅" },
     { name: "Profile", path: "/profile", icon: "👤" },
     { name: "Create Group", path: "/creategroup", icon: "➕" }, // ✅ new
     { name: "Join Group", path: "/join", icon: "🔗" }, // ✅ new

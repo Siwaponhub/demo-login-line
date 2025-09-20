@@ -1,0 +1,9 @@
+.react-calendar__tile.bg-danger {
+  background-color: rgba(220, 53, 69, 0.3) !important; /* แดงอ่อน */
+  border-radius: 6px;
+}
+
+.react-calendar__tile.bg-success {
+  background-color: rgba(25, 135, 84, 0.3) !important; /* เขียวอ่อน */
+  border-radius: 6px;
+}

@@ -11,6 +11,7 @@ import Menu from "./components/Menu";
 import CreateGroup from "./components/CreateGroup";
 import JoinGroup from "./components/JoinGroup";
 import GroupDetail from "./components/GroupDetail";
+import CalendarGroups from "./components/CalendarGroups";
 import { useAuth } from "./AuthContext";
 
 function App() {
@@ -43,6 +44,10 @@ function App() {
         />
         <Route
           path="/calendar"
+          element={user ? <CalendarGroups /> : <Navigate to="/" />}
+        />
+        <Route
+          path="/calendar/:id"
           element={user ? <AvailabilityCalendar /> : <Navigate to="/" />}
         />
         <Route
