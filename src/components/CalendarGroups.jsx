@@ -3,27 +3,36 @@ import { collection, getDocs } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../AuthContext";
 import { Link } from "react-router-dom";
+import BackHomeButtons from "./BackHomeButtons";
 
 function CalendarGroups() {
   const { user } = useAuth();
   const [groups, setGroups] = useState([]);
+  const [loading, setLoading] = useState(true); // ✅ สถานะกำลังโหลด
 
   useEffect(() => {
     const fetchGroups = async () => {
-      const querySnapshot = await getDocs(collection(db, "groups"));
-      const allGroups = querySnapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
+      try {
+        setLoading(true);
+        const querySnapshot = await getDocs(collection(db, "groups"));
+        const allGroups = querySnapshot.docs.map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+        }));
 
-      // เอาเฉพาะกลุ่มที่ user เป็นสมาชิกหรือเป็นเจ้าของ
-      const userGroups = allGroups.filter(
-        (g) =>
-          g.ownerId === user?.userId ||
-          g.members?.some((m) => m.userId === user?.userId)
-      );
+        // เอาเฉพาะกลุ่มที่ user เป็นสมาชิกหรือเป็นเจ้าของ
+        const userGroups = allGroups.filter(
+          (g) =>
+            g.ownerId === user?.userId ||
+            g.members?.some((m) => m.userId === user?.userId)
+        );
 
-      setGroups(userGroups);
+        setGroups(userGroups);
+      } catch (err) {
+        console.error("Error fetching groups:", err);
+      } finally {
+        setLoading(false);
+      }
     };
 
     if (user) fetchGroups();
@@ -33,9 +42,23 @@ function CalendarGroups() {
     <div className="container mt-4">
       <h3 className="fw-bold text-info mb-3">📌 เลือกกลุ่มสำหรับดูปฏิทิน</h3>
 
-      {groups.length === 0 ? (
+      {loading ? (
+        // ✅ กำลังโหลด
+        <div className="text-center my-5">
+          <div
+            className="spinner-border text-info"
+            style={{ width: "3rem", height: "3rem" }}
+            role="status"
+          >
+            <span className="visually-hidden">Loading...</span>
+          </div>
+          <p className="mt-3 text-muted">กำลังโหลดข้อมูลกลุ่ม...</p>
+        </div>
+      ) : groups.length === 0 ? (
+        // ✅ ไม่มีข้อมูล
         <div className="alert alert-secondary">คุณยังไม่มีกลุ่มที่เข้าร่วม</div>
       ) : (
+        // ✅ มีข้อมูล
         <div className="list-group shadow-sm rounded-4">
           {groups.map((g) => (
             <Link
@@ -49,6 +72,7 @@ function CalendarGroups() {
           ))}
         </div>
       )}
+      <BackHomeButtons />
     </div>
   );
 }

@@ -9,10 +9,12 @@ import { Link } from "react-router-dom";
 function Dashboard() {
   const { user } = useAuth();
   const [groups, setGroups] = useState([]);
+  const [loading, setLoading] = useState(true); // ✅ state สำหรับสถานะโหลด
 
   useEffect(() => {
     const fetchGroups = async () => {
       try {
+        setLoading(true);
         const querySnapshot = await getDocs(collection(db, "groups"));
         const groupData = querySnapshot.docs.map((doc) => ({
           id: doc.id,
@@ -24,6 +26,9 @@ function Dashboard() {
         setGroups(userGroups);
       } catch (err) {
         console.error("Error fetching groups:", err);
+        Swal.fire("❌ ผิดพลาด", "ไม่สามารถโหลดข้อมูลกลุ่มได้", "error");
+      } finally {
+        setLoading(false);
       }
     };
 
@@ -56,11 +61,25 @@ function Dashboard() {
     <div className="container mt-4">
       <h3 className="mb-4 fw-bold text-primary">👥 กลุ่มของฉัน</h3>
 
-      {groups.length === 0 ? (
+      {loading ? (
+        // ✅ แสดง Loading ระหว่างโหลด
+        <div className="text-center my-5">
+          <div
+            className="spinner-border text-primary"
+            style={{ width: "3rem", height: "3rem" }}
+            role="status"
+          >
+            <span className="visually-hidden">Loading...</span>
+          </div>
+          <p className="mt-3 text-muted">กำลังโหลดข้อมูล...</p>
+        </div>
+      ) : groups.length === 0 ? (
+        // ✅ แสดงข้อความถ้าไม่มีจริง ๆ
         <div className="alert alert-secondary text-center">
           คุณยังไม่ได้เข้าร่วมกลุ่มใด
         </div>
       ) : (
+        // ✅ แสดงรายการกลุ่ม
         <div className="row g-3">
           {groups.map((group) => (
             <div key={group.id} className="col-12 col-md-6">

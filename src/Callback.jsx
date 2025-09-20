@@ -12,6 +12,7 @@ import {
 } from "firebase/firestore";
 import { db } from "./firebase";
 import { useAuth } from "./AuthContext";
+import Swal from "sweetalert2";
 
 function Callback() {
   const location = useLocation();
@@ -86,6 +87,22 @@ function Callback() {
                   email: userData.email,
                   picture: userData.picture,
                 }),
+              });
+
+              // ✅ แจ้งเตือนว่าเข้ากลุ่มสำเร็จ
+              await Swal.fire({
+                icon: "success",
+                title: "เข้าร่วมกลุ่มเรียบร้อย",
+                text: `คุณได้เข้าร่วมกลุ่ม: ${group.name}`,
+                confirmButtonText: "ตกลง",
+              });
+            } else {
+              // กรณีอยู่ในกลุ่มแล้ว
+              await Swal.fire({
+                icon: "info",
+                title: "คุณอยู่ในกลุ่มนี้แล้ว",
+                text: group.name,
+                confirmButtonText: "ตกลง",
               });
             }
 
