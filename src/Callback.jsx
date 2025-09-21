@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import axios from "axios";
 import { jwtDecode } from "jwt-decode";
@@ -15,19 +15,30 @@ import { useAuth } from "./AuthContext";
 import Swal from "sweetalert2";
 
 function Callback() {
+  const effectRan = useRef(false);
   const location = useLocation();
   const navigate = useNavigate();
   const { login } = useAuth();
 
   useEffect(() => {
+    if (effectRan.current) return;
+    effectRan.current = true;
     const fetchToken = async () => {
       const query = new URLSearchParams(location.search);
       const code = query.get("code");
+      const state = query.get("state");
+      // console.log("state", state);
+
+      let groupId = null;
+
+      if (state && state.startsWith("group_")) {
+        groupId = state.replace("group_", "");
+        // console.log("👉 groupId จาก LINE state:", groupId);
+      }
 
       if (!code) return;
 
       try {
-        // 1. แลก token จาก LINE
         const data = new URLSearchParams();
         data.append("grant_type", "authorization_code");
         data.append("code", code);
@@ -44,7 +55,6 @@ function Callback() {
         const { id_token } = res.data;
         const decoded = jwtDecode(id_token);
 
-        // 2. ข้อมูล user
         const userData = {
           userId: decoded.sub,
           name: decoded.name || "Unknown",
@@ -53,24 +63,17 @@ function Callback() {
           lastLogin: serverTimestamp(),
         };
 
-        // 3. เก็บ user ใน localStorage + context
         localStorage.setItem("lineUser", JSON.stringify(userData));
         login(userData);
 
-        // 4. บันทึก user ลง Firestore
         await setDoc(
           doc(db, "users", userData.userId),
-          {
-            ...userData,
-            lastLogin: serverTimestamp(),
-          },
+          { ...userData, lastLogin: serverTimestamp() },
           { merge: true }
         );
 
-        // 5. เช็คว่ามี group pending อยู่ไหม
-        const pendingGroupId = localStorage.getItem("pendingGroupId");
-        if (pendingGroupId) {
-          const ref = doc(db, "groups", pendingGroupId);
+        if (groupId) {
+          const ref = doc(db, "groups", groupId);
           const snap = await getDoc(ref);
 
           if (snap.exists()) {
@@ -89,37 +92,29 @@ function Callback() {
                 }),
               });
 
-              // ✅ แจ้งเตือนว่าเข้ากลุ่มสำเร็จ
               await Swal.fire({
                 icon: "success",
                 title: "เข้าร่วมกลุ่มเรียบร้อย",
                 text: `คุณได้เข้าร่วมกลุ่ม: ${group.name}`,
-                confirmButtonText: "ตกลง",
               });
             } else {
-              // กรณีอยู่ในกลุ่มแล้ว
               await Swal.fire({
                 icon: "info",
                 title: "คุณอยู่ในกลุ่มนี้แล้ว",
                 text: group.name,
-                confirmButtonText: "ตกลง",
               });
             }
 
-            localStorage.removeItem("pendingGroupId");
-            navigate(`/group/${pendingGroupId}`); // ✅ ไปหน้า group โดยตรง
+            navigate(`/group/${groupId}`);
             return;
+          } else {
+            await Swal.fire("❌ ไม่พบกลุ่ม", "", "error");
           }
         }
 
-        // ถ้าไม่มี group → ไปหน้า menu
         navigate("/menu");
       } catch (error) {
-        if (error.response) {
-          console.error("❌ LINE token error:", error.response.data);
-        } else {
-          console.error("❌ LINE token error:", error);
-        }
+        console.error("❌ LINE token error:", error.response?.data || error);
       }
     };
 
@@ -131,10 +126,7 @@ function Callback() {
       <div
         className="spinner-border text-success mb-3"
         style={{ width: "3rem", height: "3rem" }}
-        role="status"
-      >
-        <span className="visually-hidden">Loading...</span>
-      </div>
+      ></div>
       <h5 className="text-muted">กำลังล็อกอินด้วย LINE...</h5>
     </div>
   );

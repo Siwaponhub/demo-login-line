@@ -9,7 +9,6 @@ import "react-calendar/dist/Calendar.css";
 import BackHomeButtons from "./BackHomeButtons";
 import "./calendar.css";
 
-// ================= Helper =================
 const getThaiDay = (date) => {
   const days = [
     "วันอาทิตย์",
@@ -41,7 +40,6 @@ const getThaiMonth = (monthIndex) => {
   return months[monthIndex];
 };
 
-// คืน string YYYY-MM-DD ตาม local timezone
 const formatDateStr = (date) => {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, "0");
@@ -49,7 +47,6 @@ const formatDateStr = (date) => {
   return `${y}-${m}-${d}`;
 };
 
-// คืนข้อความไทยสวยๆ เช่น "วันเสาร์ที่ 20 กันยายน 2568"
 const formatThaiDate = (date) => {
   const day = date.getDate();
   const month = getThaiMonth(date.getMonth());
@@ -59,16 +56,14 @@ const formatThaiDate = (date) => {
 
 const isWeekend = (date) => {
   const day = date.getDay();
-  return day === 0 || day === 6; // อาทิตย์=0, เสาร์=6
+  return day === 0 || day === 6;
 };
-
-// =========================================
 
 function AvailabilityCalendar() {
   const { id } = useParams();
   const { user } = useAuth();
   const [group, setGroup] = useState(null);
-  const [filter, setFilter] = useState("weekend"); // ✅ default = เสาร์-อาทิตย์
+  const [filter, setFilter] = useState("weekend");
   const [activeMonth, setActiveMonth] = useState(new Date());
 
   useEffect(() => {
@@ -83,7 +78,6 @@ function AvailabilityCalendar() {
     }
   };
 
-  // เลือก/ยกเลิกวันไม่ว่าง
   const handleSelectDate = async (date) => {
     if (!user || !group) return;
     const dateStr = formatDateStr(date);
@@ -93,7 +87,6 @@ function AvailabilityCalendar() {
     const userDates = new Set(availability[user.userId] || []);
 
     if (userDates.has(dateStr)) {
-      // ✅ ยกเลิกวันไม่ว่าง
       const result = await Swal.fire({
         icon: "question",
         title: "ยืนยัน?",
@@ -105,7 +98,6 @@ function AvailabilityCalendar() {
       if (!result.isConfirmed) return;
       userDates.delete(dateStr);
     } else {
-      // ✅ เพิ่มวันไม่ว่าง
       const result = await Swal.fire({
         icon: "warning",
         title: "ยืนยัน?",
@@ -130,7 +122,6 @@ function AvailabilityCalendar() {
     Swal.fire("✅ สำเร็จ", "อัปเดตวันไม่ว่างเรียบร้อย", "success");
   };
 
-  // คืนวันว่างตรงกันเฉพาะเดือนปัจจุบัน
   const getCommonAvailableDates = () => {
     if (!group?.availability) return [];
 
@@ -169,7 +160,6 @@ function AvailabilityCalendar() {
 
   const commonDates = getCommonAvailableDates();
 
-  // ตารางคนไม่ว่าง เฉพาะเดือนที่เลือก
   const unavailableTable = [];
   for (const [uid, dates] of Object.entries(group.availability || {})) {
     const member = group.members.find((m) => m.userId === uid);
@@ -198,20 +188,6 @@ function AvailabilityCalendar() {
       <div className="card shadow rounded-4 p-3">
         <h3 className="mb-3 text-info">📅 ปฏิทินวันว่าง - {group.name}</h3>
 
-        {/* Filter */}
-        <div className="mb-3">
-          <select
-            className="form-select"
-            style={{ maxWidth: "200px" }}
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-          >
-            <option value="all">ทั้งหมด</option>
-            <option value="weekend">เฉพาะเสาร์-อาทิตย์</option>
-            <option value="weekday">เฉพาะวันธรรมดา</option>
-          </select>
-        </div>
-
         <Calendar
           onClickDay={handleSelectDate}
           onActiveStartDateChange={({ activeStartDate }) =>
@@ -222,10 +198,10 @@ function AvailabilityCalendar() {
             const userUnavailable = group.availability?.[user?.userId] || [];
 
             if (userUnavailable.includes(dateStr)) {
-              return "bg-danger bg-opacity-25"; // user ไม่ว่าง
+              return "bg-danger bg-opacity-25";
             }
             if (commonDates.includes(dateStr)) {
-              return "bg-success bg-opacity-25"; // วันว่างตรงกัน
+              return "bg-success bg-opacity-25";
             }
             return "";
           }}
@@ -264,6 +240,34 @@ function AvailabilityCalendar() {
             );
           }}
         />
+
+        {/* Filter */}
+        <div className="mt-4 d-flex gap-2">
+          <button
+            className={`btn btn-outline-primary ${
+              filter === "all" ? "active" : ""
+            }`}
+            onClick={() => setFilter("all")}
+          >
+            ทั้งหมด
+          </button>
+          <button
+            className={`btn btn-outline-primary ${
+              filter === "weekend" ? "active" : ""
+            }`}
+            onClick={() => setFilter("weekend")}
+          >
+            เสาร์-อาทิตย์
+          </button>
+          <button
+            className={`btn btn-outline-primary ${
+              filter === "weekday" ? "active" : ""
+            }`}
+            onClick={() => setFilter("weekday")}
+          >
+            วันธรรมดา
+          </button>
+        </div>
 
         {/* ✅ ใครไม่ว่าง */}
         <h5 className="mt-4">❌ ใครไม่ว่าง</h5>

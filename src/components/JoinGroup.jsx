@@ -17,12 +17,9 @@ function JoinGroup() {
     const gid = query.get("groupId");
 
     if (gid) {
-      setGroupId(gid);
-
       if (!user) {
-        // ✅ ยังไม่ login → เก็บ groupId ไว้ใน localStorage
         localStorage.setItem("pendingGroupId", gid);
-        navigate("/"); // กลับไปหน้า login
+        navigate("/");
       } else {
         handleJoin(gid);
       }
@@ -59,7 +56,7 @@ function JoinGroup() {
       });
 
       Swal.fire("✅ เข้าร่วมกลุ่มเรียบร้อย", "", "success");
-      navigate(`/group/${gid}`); // ไปหน้ารายละเอียดกลุ่ม
+      navigate(`/group/${gid}`);
     } catch (err) {
       console.error(err);
       Swal.fire("⚠️ มีข้อผิดพลาด", "", "error");

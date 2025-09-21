@@ -17,11 +17,15 @@ function LoginButton() {
     }
   }, []);
 
-  const handleLogin = () => {
+  const handleLogin = (groupId = null) => {
     const client_id = import.meta.env.VITE_LINE_CHANNEL_ID;
     const redirect_uri = import.meta.env.VITE_LINE_REDIRECT_URI;
-    const state = crypto.randomUUID();
+    const pendingGroupId = localStorage.getItem("pendingGroupId");
+    const state = pendingGroupId
+      ? `group_${pendingGroupId}`
+      : crypto.randomUUID();
     const scope = "openid profile email";
+    // console.log("state", state);
 
     const loginUrl = `https://access.line.me/oauth2/v2.1/authorize?response_type=code&client_id=${client_id}&redirect_uri=${redirect_uri}&state=${state}&scope=${scope}`;
     window.location.href = loginUrl;
@@ -35,7 +39,7 @@ function LoginButton() {
   const saveUser = async (userData) => {
     try {
       await setDoc(doc(db, "users", userData.email), userData, { merge: true });
-      console.log("User saved:", userData.email);
+      // console.log("User saved:", userData.email);
     } catch (err) {
       console.error("Error saving user:", err);
     }
@@ -65,7 +69,7 @@ function LoginButton() {
   return (
     <div className="text-center mt-5">
       <button
-        onClick={handleLogin}
+        onClick={() => handleLogin()}
         className="btn d-flex align-items-center justify-content-center mx-auto shadow"
         style={{
           backgroundColor: "#06C755",
