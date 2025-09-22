@@ -11,7 +11,7 @@ function Menu() {
     { name: "Calendar", path: "/calendar", icon: "📅" },
     { name: "Profile", path: "/profile", icon: "👤" },
     { name: "Create Group", path: "/creategroup", icon: "➕" }, // ✅ new
-    { name: "Join Group", path: "/join", icon: "🔗" }, // ✅ new
+    // { name: "Join Group", path: "/join", icon: "🔗" }, // ✅ new
   ];
 
   return (
