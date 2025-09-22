@@ -47,7 +47,7 @@ function App() {
         <Route path="/calendar/:id" element={withAuth(AvailabilityCalendar)} />
         <Route path="/profile" element={withAuth(Profile)} />
         <Route path="/creategroup" element={withAuth(CreateGroup)} />
-        <Route path="/join" element={withAuth(JoinGroup)} />
+        {/* <Route path="/join" element={withAuth(JoinGroup)} /> */}
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>
     </Layout>
