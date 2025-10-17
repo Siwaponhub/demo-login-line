@@ -52,13 +52,19 @@ function Callback() {
           { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
         );
 
-        const { id_token } = res.data;
+        const { id_token, access_token } = res.data;
         const decoded = jwtDecode(id_token);
+
+        const profileRes = await axios.get("https://api.line.me/v2/profile", {
+          headers: { Authorization: `Bearer ${access_token}` },
+        });
+
+        const profile = profileRes.data;
 
         const userData = {
           userId: decoded.sub,
-          name: decoded.name || "Unknown",
-          picture: decoded.picture || "",
+          name: profile.displayName || decoded.name || "Unknown",
+          picture: profile.pictureUrl || decoded.picture || "",
           email: decoded.email || "",
           lastLogin: serverTimestamp(),
         };
