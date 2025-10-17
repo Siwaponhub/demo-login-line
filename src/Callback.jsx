@@ -9,6 +9,8 @@ import {
   getDoc,
   updateDoc,
   arrayUnion,
+  collection,
+  getDocs,
 } from "firebase/firestore";
 import { db } from "./firebase";
 import { useAuth } from "./AuthContext";
@@ -77,6 +79,31 @@ function Callback() {
           { ...userData, lastLogin: serverTimestamp() },
           { merge: true }
         );
+
+        const groupsSnap = await getDocs(collection(db, "groups"));
+        for (const g of groupsSnap.docs) {
+          const groupRef = doc(db, "groups", g.id);
+          const groupData = g.data();
+
+          const isMember = groupData.members?.some(
+            (m) => m.userId === userData.userId
+          );
+
+          if (isMember) {
+            const updatedMembers = groupData.members.map((m) =>
+              m.userId === userData.userId
+                ? {
+                    ...m,
+                    name: userData.name,
+                    picture: userData.picture,
+                    email: userData.email,
+                  }
+                : m
+            );
+
+            await updateDoc(groupRef, { members: updatedMembers });
+          }
+        }
 
         if (groupId) {
           const ref = doc(db, "groups", groupId);
