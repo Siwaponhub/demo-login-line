@@ -450,6 +450,69 @@
   flex: 0 0 auto;
 }
 
+.list-group-item {
+  min-width: 0;
+}
+
+.list-group-item > .d-flex.min-w-0 {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.list-group-item > .d-flex.min-w-0 > .min-w-0 {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.list-group-item > .d-flex.min-w-0 h3,
+.list-group-item > .d-flex.min-w-0 small {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.list-group-item > .btn {
+  flex: 0 0 auto;
+}
+
+.input-group {
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+
+.input-group > .input-group-text:first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 58%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.input-group > .form-control {
+  flex: 0 1 128px;
+  min-width: 92px;
+}
+
+.input-group > .input-group-text:last-child {
+  flex: 0 0 auto;
+}
+
+.bill-participant-row > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.bill-participant-row > span:first-child span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 @media (max-width: 760px) {
   .app-topbar {
     align-items: flex-start;
@@ -514,5 +577,38 @@
 
   .bill-participant-row {
     align-items: flex-start;
+  }
+
+  .soft-card {
+    min-width: 0;
+  }
+
+  .list-group-item.px-0.d-flex {
+    align-items: flex-start !important;
+  }
+
+  .list-group-item > .d-flex.min-w-0 h3,
+  .list-group-item > .d-flex.min-w-0 small {
+    max-width: calc(100vw - 150px);
+  }
+
+  .input-group {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(88px, 112px) auto;
+    width: 100%;
+  }
+
+  .input-group > .input-group-text:first-child {
+    max-width: none;
+    border-radius: 12px 0 0 12px;
+  }
+
+  .input-group > .form-control {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .bill-participant-row strong {
+    white-space: nowrap;
   }
 }
