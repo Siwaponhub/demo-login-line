@@ -29,9 +29,15 @@ function BillManager() {
   const [form, setForm] = useState(emptyBill);
   const [editingId, setEditingId] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
 
   const isGroupRoute = Boolean(id);
   const members = useMemo(() => group?.members || [], [group]);
+
+  const totalTripAmount = useMemo(
+    () => bills.reduce((sum, bill) => sum + Number(bill.amount || 0), 0),
+    [bills]
+  );
 
   const fetchGroups = useCallback(async () => {
     if (!user) return;
@@ -104,7 +110,6 @@ function BillManager() {
 
         rows.push({
           billId: bill.id,
-          billTitle: bill.title,
           payerName: payer?.name || bill.payerName || "ผู้จ่าย",
           debtorName: participant.name,
           amount: share,
@@ -140,6 +145,16 @@ function BillManager() {
       payerId: user?.userId || members[0]?.userId || "",
     });
     setEditingId(null);
+    setShowForm(false);
+  };
+
+  const openCreateForm = () => {
+    setForm({
+      ...emptyBill,
+      payerId: user?.userId || members[0]?.userId || "",
+    });
+    setEditingId(null);
+    setShowForm(true);
   };
 
   const toggleParticipant = (member) => {
@@ -271,6 +286,7 @@ function BillManager() {
       payerId: bill.payerId || user?.userId || "",
       participants: bill.participants || [],
     });
+    setShowForm(true);
   };
 
   const handleDelete = async (billId) => {
@@ -338,17 +354,43 @@ function BillManager() {
           <h1 className="page-title">ค่าใช้จ่ายทริป</h1>
           <p className="page-subtitle">{group.name}</p>
         </div>
+        <button className="btn btn-success px-4 py-3" onClick={openCreateForm}>
+          เพิ่มบิล
+        </button>
       </section>
 
-      <section className="calendar-layout">
-        <form className="soft-card p-4" onSubmit={handleSubmit}>
-          <h2 className="h4 fw-bold">{editingId ? "แก้ไขบิล" : "เพิ่มบิล"}</h2>
+      <section className="expense-overview">
+        <div className="soft-card p-4">
+          <p className="text-muted mb-1">ยอดรวมทริป</p>
+          <strong>{money(totalTripAmount)} บาท</strong>
+        </div>
+        <div className="soft-card p-4">
+          <p className="text-muted mb-1">จำนวนบิล</p>
+          <strong>{bills.length} บิล</strong>
+        </div>
+        <div className="soft-card p-4">
+          <p className="text-muted mb-1">รายการที่ต้องชำระคืน</p>
+          <strong>{summaryByPerson.length} รายการ</strong>
+        </div>
+      </section>
+
+      {showForm && (
+        <form className="soft-card p-4 mt-3" onSubmit={handleSubmit}>
+          <div className="d-flex justify-content-between align-items-start gap-3">
+            <div>
+              <h2 className="h4 fw-bold mb-1">{editingId ? "แก้ไขบิล" : "เพิ่มบิล"}</h2>
+              <p className="text-muted mb-0">เลือกคนออกเงินและสมาชิกที่ร่วมบิลนี้</p>
+            </div>
+            <button className="btn btn-light border" type="button" onClick={resetForm}>
+              ปิด
+            </button>
+          </div>
 
           <label className="form-label fw-bold mt-3">ชื่อบิล</label>
           <input
             className="form-control"
             value={form.title}
-            onChange={(e) => updateForm("title", e.target.value)}
+            onChange={(event) => updateForm("title", event.target.value)}
             placeholder="เช่น ค่าที่พัก คืนแรก"
           />
 
@@ -361,7 +403,7 @@ function BillManager() {
                 step="0.01"
                 className="form-control"
                 value={form.amount}
-                onChange={(e) => updateForm("amount", e.target.value)}
+                onChange={(event) => updateForm("amount", event.target.value)}
                 placeholder="0.00"
               />
             </div>
@@ -370,7 +412,7 @@ function BillManager() {
               <select
                 className="form-control"
                 value={form.payerId}
-                onChange={(e) => updateForm("payerId", e.target.value)}
+                onChange={(event) => updateForm("payerId", event.target.value)}
               >
                 <option value="">เลือกผู้จ่าย</option>
                 {members.map((member) => (
@@ -439,7 +481,7 @@ function BillManager() {
                       step="0.01"
                       className="form-control"
                       value={participant.share}
-                      onChange={(e) => updateShare(participant.userId, e.target.value)}
+                      onChange={(event) => updateShare(participant.userId, event.target.value)}
                     />
                     <span className="input-group-text">บาท</span>
                   </div>
@@ -463,57 +505,81 @@ function BillManager() {
             )}
           </div>
         </form>
+      )}
 
-        <aside className="d-grid gap-3">
-          <div className="soft-card p-4">
-            <h2 className="h4 fw-bold">สรุปยอดต้องชำระ</h2>
-            {summaryByPerson.length === 0 ? (
-              <p className="text-muted mb-0">ยังไม่มีรายการที่ต้องจ่ายคืน</p>
-            ) : (
-              <div className="list-group list-group-flush">
-                {summaryByPerson.map((row) => (
-                  <div key={`${row.debtorName}-${row.payerName}`} className="list-group-item px-0">
-                    <strong>{row.debtorName}</strong> จ่ายให้ <strong>{row.payerName}</strong>
-                    <span className="d-block text-success fw-bold">{money(row.amount)} บาท</span>
+      <section className="expense-layout mt-3">
+        <div className="soft-card p-4">
+          <div className="d-flex justify-content-between align-items-center gap-3 mb-3">
+            <h2 className="h4 fw-bold mb-0">รายการบิล</h2>
+            <span className="badge text-bg-light">{bills.length} บิล</span>
+          </div>
+
+          {bills.length === 0 ? (
+            <div className="empty-state">
+              <h3 className="h5 fw-bold">ยังไม่มีบิล</h3>
+              <p>กดเพิ่มบิลเพื่อเริ่มบันทึกค่าใช้จ่ายของทริปนี้</p>
+            </div>
+          ) : (
+            <div className="bill-grid">
+              {bills.map((bill) => (
+                <article key={bill.id} className="bill-card">
+                  <div className="bill-card-header">
+                    <div>
+                      <h3>{bill.title}</h3>
+                      <p>ออกโดย {bill.payerName || "ผู้จ่าย"}</p>
+                    </div>
+                    <strong>{money(bill.amount)} บาท</strong>
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
 
-          <div className="soft-card p-4">
-            <h2 className="h4 fw-bold">รายการบิล</h2>
-            {bills.length === 0 ? (
-              <p className="text-muted mb-0">ยังไม่มีบิล</p>
-            ) : (
-              <div className="d-grid gap-3">
-                {bills.map((bill) => (
-                  <article key={bill.id} className="border rounded-4 p-3 bg-white">
-                    <div className="d-flex justify-content-between gap-3">
-                      <div>
-                        <h3 className="h5 fw-bold mb-1">{bill.title}</h3>
-                        <p className="text-muted mb-1">
-                          รวม {money(bill.amount)} บาท
-                        </p>
-                        <p className="mb-0">ออกโดย {bill.payerName || "ผู้จ่าย"}</p>
+                  <div className="bill-participants">
+                    <div className="bill-section-title">
+                      <span>รายละเอียดสมาชิกในบิล</span>
+                      <small>{bill.participants?.length || 0} คน</small>
+                    </div>
+
+                    {(bill.participants || []).map((participant) => (
+                      <div key={participant.userId} className="bill-participant-row">
+                        <span className="d-flex align-items-center gap-2">
+                          <img
+                            src={participant.picture || "https://via.placeholder.com/30"}
+                            alt={participant.name}
+                            className="avatar"
+                          />
+                          <span>{participant.name}</span>
+                        </span>
+                        <strong>{money(participant.share)} บาท</strong>
                       </div>
-                    </div>
-                    <div className="mt-3 small text-muted">
-                      {bill.participants?.length || 0} คนร่วมบิล
-                    </div>
-                    <div className="d-flex gap-2 mt-3">
-                      <button className="btn btn-sm btn-outline-primary" onClick={() => handleEdit(bill)}>
-                        แก้ไข
-                      </button>
-                      <button className="btn btn-sm btn-outline-danger" onClick={() => handleDelete(bill.id)}>
-                        ลบ
-                      </button>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            )}
-          </div>
+                    ))}
+                  </div>
+
+                  <div className="d-flex gap-2 mt-3">
+                    <button className="btn btn-sm btn-outline-primary" onClick={() => handleEdit(bill)}>
+                      แก้ไข
+                    </button>
+                    <button className="btn btn-sm btn-outline-danger" onClick={() => handleDelete(bill.id)}>
+                      ลบ
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <aside className="soft-card p-4">
+          <h2 className="h4 fw-bold">สรุปยอดต้องชำระ</h2>
+          {summaryByPerson.length === 0 ? (
+            <p className="text-muted mb-0">ยังไม่มีรายการที่ต้องจ่ายคืน</p>
+          ) : (
+            <div className="list-group list-group-flush">
+              {summaryByPerson.map((row) => (
+                <div key={`${row.debtorName}-${row.payerName}`} className="list-group-item px-0">
+                  <strong>{row.debtorName}</strong> จ่ายให้ <strong>{row.payerName}</strong>
+                  <span className="d-block text-success fw-bold">{money(row.amount)} บาท</span>
+                </div>
+              ))}
+            </div>
+          )}
         </aside>
       </section>
 
