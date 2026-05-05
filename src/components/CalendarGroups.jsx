@@ -1,26 +1,24 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { collection, getDocs } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../AuthContext";
-import { Link } from "react-router-dom";
 import BackHomeButtons from "./BackHomeButtons";
 
 function CalendarGroups() {
   const { user } = useAuth();
   const [groups, setGroups] = useState([]);
-  const [loading, setLoading] = useState(true); // ✅ สถานะกำลังโหลด
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchGroups = async () => {
       try {
         setLoading(true);
         const querySnapshot = await getDocs(collection(db, "groups"));
-        const allGroups = querySnapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
+        const allGroups = querySnapshot.docs.map((docSnap) => ({
+          id: docSnap.id,
+          ...docSnap.data(),
         }));
-
-        // เอาเฉพาะกลุ่มที่ user เป็นสมาชิกหรือเป็นเจ้าของ
         const userGroups = allGroups.filter(
           (g) =>
             g.ownerId === user?.userId ||
@@ -39,41 +37,39 @@ function CalendarGroups() {
   }, [user]);
 
   return (
-    <div className="container mt-4">
-      <h3 className="fw-bold text-info mb-3">📌 เลือกกลุ่มสำหรับดูปฏิทิน</h3>
+    <>
+      <section className="page-header">
+        <div>
+          <h1 className="page-title">เลือกกลุ่มสำหรับปฏิทิน</h1>
+          <p className="page-subtitle">เปิดปฏิทินของแต่ละกลุ่มเพื่อบันทึกวันที่ไม่ว่าง</p>
+        </div>
+      </section>
 
       {loading ? (
-        // ✅ กำลังโหลด
-        <div className="text-center my-5">
-          <div
-            className="spinner-border text-info"
-            style={{ width: "3rem", height: "3rem" }}
-            role="status"
-          >
+        <div className="soft-card empty-state">
+          <div className="spinner-border text-success" role="status">
             <span className="visually-hidden">Loading...</span>
           </div>
-          <p className="mt-3 text-muted">กำลังโหลดข้อมูลกลุ่ม...</p>
+          <p className="mt-3 mb-0">กำลังโหลดข้อมูลกลุ่ม...</p>
         </div>
       ) : groups.length === 0 ? (
-        // ✅ ไม่มีข้อมูล
-        <div className="alert alert-secondary">คุณยังไม่มีกลุ่มที่เข้าร่วม</div>
+        <div className="soft-card empty-state">ยังไม่มีกลุ่มที่เข้าร่วม</div>
       ) : (
-        // ✅ มีข้อมูล
-        <div className="list-group shadow-sm rounded-4">
-          {groups.map((g) => (
-            <Link
-              key={g.id}
-              to={`/calendar/${g.id}`}
-              className="list-group-item list-group-item-action d-flex justify-content-between align-items-center"
-            >
-              <span className="fw-bold">{g.name}</span>
-              <span className="badge bg-primary">ดูปฏิทิน</span>
+        <div className="section-grid">
+          {groups.map((group) => (
+            <Link key={group.id} to={`/calendar/${group.id}`} className="menu-card">
+              <span className="tile-icon alt">C</span>
+              <span>
+                <h2>{group.name}</h2>
+                <p>{group.members?.length || 0} สมาชิก</p>
+              </span>
             </Link>
           ))}
         </div>
       )}
+
       <BackHomeButtons />
-    </div>
+    </>
   );
 }
 

@@ -1,49 +1,43 @@
-import { useAuth } from "../AuthContext";
 import { Link } from "react-router-dom";
+import { useAuth } from "../AuthContext";
+import BackHomeButtons from "./BackHomeButtons";
 
 function Profile() {
   const { user } = useAuth();
 
   if (!user) {
     return (
-      <div className="container mt-4 text-center">
-        <h3>ยังไม่ได้ Login</h3>
+      <div className="soft-card login-card text-center">
+        <h1 className="page-title">ยังไม่ได้เข้าสู่ระบบ</h1>
         <Link to="/" className="btn btn-success mt-3">
-          🔑 Login with LINE
+          เข้าสู่ระบบด้วย LINE
         </Link>
       </div>
     );
   }
 
   return (
-    <div className="container mt-4">
-      <div className="card shadow rounded-4 p-4 text-center">
+    <>
+      <section className="page-header">
+        <div>
+          <h1 className="page-title">โปรไฟล์</h1>
+          <p className="page-subtitle">ข้อมูลบัญชีที่ใช้สำหรับเข้าร่วมกลุ่ม</p>
+        </div>
+      </section>
+
+      <section className="soft-card p-4 text-center">
         <img
           src={user.picture}
-          alt="profile"
-          className="rounded-circle mb-3 shadow mx-auto d-block"
-          style={{ width: "120px", height: "120px" }}
+          alt={user.name}
+          className="rounded-circle shadow-sm mb-3"
+          style={{ width: "118px", height: "118px", objectFit: "cover" }}
         />
-        <h3 className="fw-bold">{user.name}</h3>
-        <p className="text-muted">{user.email}</p>
-        {/* <p className="text-muted small">LINE ID: {user.userId}</p> */}
-      </div>
+        <h2 className="h3 fw-bold mb-1">{user.name}</h2>
+        <p className="text-muted mb-0">{user.email || "ไม่มีอีเมล"}</p>
+      </section>
 
-      <div className="text-center mt-4">
-        <Link
-          to="/"
-          className="d-block p-3 shadow rounded-4 text-decoration-none"
-          style={{
-            backgroundColor: "#f8f9fa",
-            border: "2px solid #dee2e6",
-            fontWeight: "500",
-            color: "#333",
-          }}
-        >
-          Home
-        </Link>
-      </div>
-    </div>
+      <BackHomeButtons />
+    </>
   );
 }
 

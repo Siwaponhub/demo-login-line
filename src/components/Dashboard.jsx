@@ -1,24 +1,24 @@
 import { useEffect, useState } from "react";
-import { collection, getDocs, doc, deleteDoc } from "firebase/firestore";
+import { Link } from "react-router-dom";
+import { collection, deleteDoc, doc, getDocs } from "firebase/firestore";
+import Swal from "sweetalert2";
 import { db } from "../firebase";
 import { useAuth } from "../AuthContext";
-import Swal from "sweetalert2";
 import BackHomeButtons from "./BackHomeButtons";
-import { Link } from "react-router-dom";
 
 function Dashboard() {
   const { user } = useAuth();
   const [groups, setGroups] = useState([]);
-  const [loading, setLoading] = useState(true); // ✅ state สำหรับสถานะโหลด
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchGroups = async () => {
       try {
         setLoading(true);
         const querySnapshot = await getDocs(collection(db, "groups"));
-        const groupData = querySnapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
+        const groupData = querySnapshot.docs.map((docSnap) => ({
+          id: docSnap.id,
+          ...docSnap.data(),
         }));
         const userGroups = groupData.filter((g) =>
           g.members?.some((m) => m.userId === user?.userId)
@@ -26,7 +26,7 @@ function Dashboard() {
         setGroups(userGroups);
       } catch (err) {
         console.error("Error fetching groups:", err);
-        Swal.fire("❌ ผิดพลาด", "ไม่สามารถโหลดข้อมูลกลุ่มได้", "error");
+        Swal.fire("เกิดข้อผิดพลาด", "ไม่สามารถโหลดข้อมูลกลุ่มได้", "error");
       } finally {
         setLoading(false);
       }
@@ -38,10 +38,10 @@ function Dashboard() {
   const handleDeleteGroup = async (groupId) => {
     const result = await Swal.fire({
       icon: "warning",
-      title: "ลบกลุ่ม?",
-      text: "คุณแน่ใจหรือไม่ว่าต้องการลบกลุ่มนี้?",
+      title: "ลบกลุ่มนี้?",
+      text: "เมื่อลบแล้วจะไม่สามารถกู้คืนข้อมูลกลุ่มนี้ได้",
       showCancelButton: true,
-      confirmButtonText: "ลบ",
+      confirmButtonText: "ลบกลุ่ม",
       cancelButtonText: "ยกเลิก",
       confirmButtonColor: "#dc3545",
     });
@@ -49,94 +49,92 @@ function Dashboard() {
 
     try {
       await deleteDoc(doc(db, "groups", groupId));
-      Swal.fire("✅ สำเร็จ", "ลบกลุ่มเรียบร้อย", "success");
       setGroups(groups.filter((g) => g.id !== groupId));
+      Swal.fire("สำเร็จ", "ลบกลุ่มเรียบร้อย", "success");
     } catch (err) {
       console.error(err);
-      Swal.fire("❌ ผิดพลาด", "ไม่สามารถลบกลุ่มได้", "error");
+      Swal.fire("เกิดข้อผิดพลาด", "ไม่สามารถลบกลุ่มได้", "error");
     }
   };
 
   return (
-    <div className="container mt-4">
-      <h3 className="mb-4 fw-bold text-primary">👥 กลุ่มของฉัน</h3>
+    <>
+      <section className="page-header">
+        <div>
+          <h1 className="page-title">กลุ่มของฉัน</h1>
+          <p className="page-subtitle">ดูรายละเอียด แชร์ลิงก์เชิญ หรือจัดการสมาชิกในกลุ่ม</p>
+        </div>
+        <Link to="/creategroup" className="btn btn-success px-4">
+          สร้างกลุ่ม
+        </Link>
+      </section>
 
       {loading ? (
-        // ✅ แสดง Loading ระหว่างโหลด
-        <div className="text-center my-5">
-          <div
-            className="spinner-border text-primary"
-            style={{ width: "3rem", height: "3rem" }}
-            role="status"
-          >
+        <div className="soft-card empty-state">
+          <div className="spinner-border text-success" role="status">
             <span className="visually-hidden">Loading...</span>
           </div>
-          <p className="mt-3 text-muted">กำลังโหลดข้อมูล...</p>
+          <p className="mt-3 mb-0">กำลังโหลดข้อมูลกลุ่ม...</p>
         </div>
       ) : groups.length === 0 ? (
-        // ✅ แสดงข้อความถ้าไม่มีจริง ๆ
-        <div className="alert alert-secondary text-center">
-          คุณยังไม่ได้เข้าร่วมกลุ่มใด
+        <div className="soft-card empty-state">
+          <h2 className="h5 fw-bold">ยังไม่มีกลุ่ม</h2>
+          <p>เริ่มจากสร้างกลุ่มใหม่หรือเข้าร่วมด้วยรหัสเชิญ</p>
+          <Link to="/creategroup" className="btn btn-success">
+            เริ่มต้นใช้งาน
+          </Link>
         </div>
       ) : (
-        // ✅ แสดงรายการกลุ่ม
-        <div className="row g-3">
+        <div className="section-grid">
           {groups.map((group) => (
-            <div key={group.id} className="col-12 col-md-6">
-              <div className="card shadow rounded-4 h-100">
-                <div className="card-body d-flex flex-column">
-                  {/* Header */}
-                  <div className="d-flex justify-content-between align-items-center mb-3">
-                    <h5 className="card-title fw-bold mb-0">{group.name}</h5>
-                    <div className="d-flex gap-2">
-                      <Link
-                        to={`/group/${group.id}`}
-                        className="btn btn-sm btn-outline-primary"
-                      >
-                        🔍 ดูรายละเอียด
-                      </Link>
-                      {user?.userId === group.ownerId && (
-                        <button
-                          className="btn btn-sm btn-outline-danger"
-                          onClick={() => handleDeleteGroup(group.id)}
-                        >
-                          🗑️ ลบ
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="d-flex align-items-center flex-wrap gap-2">
-                    {group.members?.slice(0, 5).map((member) => (
-                      <img
-                        key={member.userId}
-                        src={member.picture || "https://via.placeholder.com/40"}
-                        alt={member.name}
-                        className="rounded-circle shadow-sm"
-                        style={{
-                          width: "40px",
-                          height: "40px",
-                          objectFit: "cover",
-                          border: "2px solid #fff",
-                        }}
-                        title={member.name}
-                      />
-                    ))}
-                    {group.members?.length > 5 && (
-                      <span className="text-muted small">
-                        +{group.members.length - 5} เพิ่มเติม
-                      </span>
-                    )}
-                  </div>
+            <article key={group.id} className="group-card">
+              <div className="d-flex justify-content-between gap-3">
+                <div>
+                  <h2 className="h5 fw-bold mb-1">{group.name}</h2>
+                  <p className="text-muted mb-0">{group.members?.length || 0} สมาชิก</p>
                 </div>
+                {user?.userId === group.ownerId && (
+                  <span className="badge text-bg-success align-self-start">เจ้าของ</span>
+                )}
               </div>
-            </div>
+
+              <div className="avatar-row">
+                {group.members?.slice(0, 6).map((member) => (
+                  <img
+                    key={member.userId}
+                    src={member.picture || "https://via.placeholder.com/40"}
+                    alt={member.name}
+                    className="avatar"
+                    title={member.name}
+                  />
+                ))}
+                {group.members?.length > 6 && (
+                  <span className="badge rounded-pill text-bg-light ms-3">
+                    +{group.members.length - 6}
+                  </span>
+                )}
+              </div>
+
+              <div className="d-flex gap-2 mt-4">
+                <Link to={`/group/${group.id}`} className="btn btn-outline-success flex-fill">
+                  ดูรายละเอียด
+                </Link>
+                {user?.userId === group.ownerId && (
+                  <button
+                    className="btn btn-outline-danger"
+                    onClick={() => handleDeleteGroup(group.id)}
+                  >
+                    ลบ
+                  </button>
+                )}
+              </div>
+            </article>
           ))}
         </div>
       )}
 
       <BackHomeButtons />
-    </div>
+    </>
   );
 }
 

@@ -1,9 +1,79 @@
-.react-calendar__tile.bg-danger {
-  background-color: rgba(220, 53, 69, 0.3) !important; /* แดงอ่อน */
-  border-radius: 6px;
+.react-calendar {
+  width: 100%;
+  border: 0;
+  color: #172033;
+  font-family: inherit;
 }
 
-.react-calendar__tile.bg-success {
-  background-color: rgba(25, 135, 84, 0.3) !important; /* เขียวอ่อน */
-  border-radius: 6px;
+.react-calendar__navigation {
+  margin-bottom: 12px;
+}
+
+.react-calendar__navigation button {
+  border-radius: 12px;
+  color: #172033;
+  font-weight: 800;
+}
+
+.react-calendar__month-view__weekdays {
+  color: #687386;
+  font-size: 0.78rem;
+  text-transform: none;
+}
+
+.react-calendar__tile {
+  min-height: 74px;
+  border-radius: 12px;
+}
+
+.react-calendar__tile:enabled:hover,
+.react-calendar__tile:enabled:focus {
+  background: rgba(6, 199, 85, 0.12);
+}
+
+.react-calendar__tile--now {
+  background: rgba(35, 116, 171, 0.12);
+}
+
+.react-calendar__tile.is-unavailable {
+  background: rgba(220, 53, 69, 0.15) !important;
+  color: #842029;
+}
+
+.react-calendar__tile.is-common {
+  background: rgba(6, 199, 85, 0.18) !important;
+  color: #0f5132;
+}
+
+.calendar-avatars {
+  display: flex;
+  justify-content: center;
+  margin-top: 4px;
+}
+
+.calendar-avatars img {
+  width: 18px;
+  height: 18px;
+  margin-right: -6px;
+  border: 1px solid #fff;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.calendar-avatars span {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #6c757d;
+  color: #fff;
+  font-size: 0.65rem;
+  line-height: 18px;
+}
+
+@media (max-width: 520px) {
+  .react-calendar__tile {
+    min-height: 58px;
+    padding: 6px 2px;
+  }
 }

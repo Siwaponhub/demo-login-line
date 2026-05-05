@@ -1,44 +1,38 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import Calendar from "react-calendar";
-import { db } from "../firebase";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
-import { useAuth } from "../AuthContext";
 import Swal from "sweetalert2";
+import { db } from "../firebase";
+import { useAuth } from "../AuthContext";
 import "react-calendar/dist/Calendar.css";
 import BackHomeButtons from "./BackHomeButtons";
 import "./calendar.css";
 
-const getThaiDay = (date) => {
-  const days = [
-    "วันอาทิตย์",
-    "วันจันทร์",
-    "วันอังคาร",
-    "วันพุธ",
-    "วันพฤหัสบดี",
-    "วันศุกร์",
-    "วันเสาร์",
-  ];
-  return days[date.getDay()];
-};
+const thaiDays = [
+  "วันอาทิตย์",
+  "วันจันทร์",
+  "วันอังคาร",
+  "วันพุธ",
+  "วันพฤหัสบดี",
+  "วันศุกร์",
+  "วันเสาร์",
+];
 
-const getThaiMonth = (monthIndex) => {
-  const months = [
-    "มกราคม",
-    "กุมภาพันธ์",
-    "มีนาคม",
-    "เมษายน",
-    "พฤษภาคม",
-    "มิถุนายน",
-    "กรกฎาคม",
-    "สิงหาคม",
-    "กันยายน",
-    "ตุลาคม",
-    "พฤศจิกายน",
-    "ธันวาคม",
-  ];
-  return months[monthIndex];
-};
+const thaiMonths = [
+  "มกราคม",
+  "กุมภาพันธ์",
+  "มีนาคม",
+  "เมษายน",
+  "พฤษภาคม",
+  "มิถุนายน",
+  "กรกฎาคม",
+  "สิงหาคม",
+  "กันยายน",
+  "ตุลาคม",
+  "พฤศจิกายน",
+  "ธันวาคม",
+];
 
 const formatDateStr = (date) => {
   const y = date.getFullYear();
@@ -49,9 +43,9 @@ const formatDateStr = (date) => {
 
 const formatThaiDate = (date) => {
   const day = date.getDate();
-  const month = getThaiMonth(date.getMonth());
+  const month = thaiMonths[date.getMonth()];
   const year = date.getFullYear() + 543;
-  return `${getThaiDay(date)}ที่ ${day} ${month} ${year}`;
+  return `${thaiDays[date.getDay()]}ที่ ${day} ${month} ${year}`;
 };
 
 const isWeekend = (date) => {
@@ -80,33 +74,27 @@ function AvailabilityCalendar() {
 
   const handleSelectDate = async (date) => {
     if (!user || !group) return;
+
     const dateStr = formatDateStr(date);
     const formattedDate = formatThaiDate(date);
-
     const availability = group.availability || {};
     const userDates = new Set(availability[user.userId] || []);
+    const willRemove = userDates.has(dateStr);
 
-    if (userDates.has(dateStr)) {
-      const result = await Swal.fire({
-        icon: "question",
-        title: "ยืนยัน?",
-        text: `คุณต้องการยกเลิกวันที่ไม่ว่าง: ${formattedDate} ใช่หรือไม่?`,
-        showCancelButton: true,
-        confirmButtonText: "ใช่, ลบออก",
-        cancelButtonText: "ยกเลิก",
-      });
-      if (!result.isConfirmed) return;
+    const result = await Swal.fire({
+      icon: willRemove ? "question" : "warning",
+      title: willRemove ? "ยกเลิกวันที่ไม่ว่าง?" : "บันทึกว่าไม่ว่าง?",
+      text: formattedDate,
+      showCancelButton: true,
+      confirmButtonText: willRemove ? "ยกเลิกวันไม่ว่าง" : "บันทึก",
+      cancelButtonText: "ปิด",
+      confirmButtonColor: willRemove ? "#198754" : "#dc3545",
+    });
+    if (!result.isConfirmed) return;
+
+    if (willRemove) {
       userDates.delete(dateStr);
     } else {
-      const result = await Swal.fire({
-        icon: "warning",
-        title: "ยืนยัน?",
-        text: `คุณต้องการบันทึกว่าไม่ว่างใน: ${formattedDate} ใช่หรือไม่?`,
-        showCancelButton: true,
-        confirmButtonText: "ใช่, บันทึก",
-        cancelButtonText: "ยกเลิก",
-      });
-      if (!result.isConfirmed) return;
       userDates.add(dateStr);
     }
 
@@ -119,14 +107,11 @@ function AvailabilityCalendar() {
       availability: newAvailability,
     });
     setGroup({ ...group, availability: newAvailability });
-    Swal.fire("✅ สำเร็จ", "อัปเดตวันไม่ว่างเรียบร้อย", "success");
+    Swal.fire("สำเร็จ", "อัปเดตปฏิทินเรียบร้อย", "success");
   };
 
   const getCommonAvailableDates = () => {
     if (!group?.availability) return [];
-
-    const membersWithData = Object.keys(group.availability);
-    if (membersWithData.length === 0) return [];
 
     const allUnavailable = {};
     for (const dates of Object.values(group.availability)) {
@@ -138,39 +123,46 @@ function AvailabilityCalendar() {
     const year = activeMonth.getFullYear();
     const month = activeMonth.getMonth();
     const daysInMonth = new Date(year, month + 1, 0).getDate();
-
     const result = [];
+
     for (let i = 1; i <= daysInMonth; i++) {
       const d = new Date(year, month, i);
       const dateStr = formatDateStr(d);
 
       if (filter === "weekend" && !isWeekend(d)) continue;
       if (filter === "weekday" && isWeekend(d)) continue;
-
-      const unavailableCount = allUnavailable[dateStr] || 0;
-      if (unavailableCount === 0) {
-        result.push(dateStr);
-      }
+      if (!allUnavailable[dateStr]) result.push(dateStr);
     }
 
     return result;
   };
 
-  if (!group) return <p className="text-center mt-4">⏳ กำลังโหลด...</p>;
+  if (!group) {
+    return (
+      <div className="soft-card empty-state">
+        <div className="spinner-border text-success" role="status">
+          <span className="visually-hidden">Loading...</span>
+        </div>
+        <p className="mt-3 mb-0">กำลังโหลดปฏิทิน...</p>
+      </div>
+    );
+  }
 
   const commonDates = getCommonAvailableDates();
-
   const unavailableTable = [];
+
   for (const [uid, dates] of Object.entries(group.availability || {})) {
     const member = group.members.find((m) => m.userId === uid);
     if (!member) continue;
+
     dates.forEach((d) => {
       const dateObj = new Date(d);
       if (
         dateObj.getMonth() !== activeMonth.getMonth() ||
         dateObj.getFullYear() !== activeMonth.getFullYear()
-      )
+      ) {
         return;
+      }
 
       if (filter === "weekend" && !isWeekend(dateObj)) return;
       if (filter === "weekday" && isWeekend(dateObj)) return;
@@ -184,131 +176,122 @@ function AvailabilityCalendar() {
   }
 
   return (
-    <div className="container mt-4">
-      <div className="card shadow rounded-4 p-3">
-        <h3 className="mb-3 text-info">📅 ปฏิทินวันว่าง - {group.name}</h3>
+    <>
+      <section className="page-header">
+        <div>
+          <h1 className="page-title">ปฏิทินวันว่าง</h1>
+          <p className="page-subtitle">
+            {group.name} กดวันที่เพื่อบันทึกว่าไม่ว่าง วันที่สีเขียวคือทุกคนยังว่าง
+          </p>
+        </div>
+      </section>
 
-        <Calendar
-          onClickDay={handleSelectDate}
-          onActiveStartDateChange={({ activeStartDate }) =>
-            setActiveMonth(activeStartDate)
-          }
-          tileClassName={({ date }) => {
-            const dateStr = formatDateStr(date);
-            const userUnavailable = group.availability?.[user?.userId] || [];
-
-            if (userUnavailable.includes(dateStr)) {
-              return "bg-danger bg-opacity-25";
+      <section className="calendar-layout">
+        <div className="soft-card p-3 p-md-4">
+          <Calendar
+            onClickDay={handleSelectDate}
+            onActiveStartDateChange={({ activeStartDate }) =>
+              setActiveMonth(activeStartDate)
             }
-            if (commonDates.includes(dateStr)) {
-              return "bg-success bg-opacity-25";
-            }
-            return "";
-          }}
-          tileContent={({ date }) => {
-            const dateStr = formatDateStr(date);
-            const unavailableMembers = group.members.filter((m) =>
-              group.availability?.[m.userId]?.includes(dateStr)
-            );
+            tileClassName={({ date }) => {
+              const dateStr = formatDateStr(date);
+              const userUnavailable = group.availability?.[user?.userId] || [];
 
-            if (unavailableMembers.length === 0) return null;
+              if (userUnavailable.includes(dateStr)) return "is-unavailable";
+              if (commonDates.includes(dateStr)) return "is-common";
+              return "";
+            }}
+            tileContent={({ date }) => {
+              const dateStr = formatDateStr(date);
+              const unavailableMembers = group.members.filter((m) =>
+                group.availability?.[m.userId]?.includes(dateStr)
+              );
 
-            return (
-              <div className="d-flex justify-content-center mt-1">
-                {unavailableMembers.slice(0, 3).map((m) => (
-                  <img
-                    key={m.userId}
-                    src={m.picture || "https://via.placeholder.com/20"}
-                    alt={m.name}
-                    title={m.name}
-                    className="rounded-circle border"
-                    style={{
-                      width: "18px",
-                      height: "18px",
-                      objectFit: "cover",
-                      marginRight: "-6px",
-                      border: "1px solid #fff",
-                    }}
-                  />
-                ))}
-                {unavailableMembers.length > 3 && (
-                  <span className="badge bg-secondary ms-1">
-                    +{unavailableMembers.length - 3}
-                  </span>
-                )}
-              </div>
-            );
-          }}
-        />
+              if (unavailableMembers.length === 0) return null;
 
-        {/* Filter */}
-        <div className="mt-4 d-flex gap-2">
-          <button
-            className={`btn btn-outline-primary ${
-              filter === "all" ? "active" : ""
-            }`}
-            onClick={() => setFilter("all")}
-          >
-            ทั้งหมด
-          </button>
-          <button
-            className={`btn btn-outline-primary ${
-              filter === "weekend" ? "active" : ""
-            }`}
-            onClick={() => setFilter("weekend")}
-          >
-            เสาร์-อาทิตย์
-          </button>
-          <button
-            className={`btn btn-outline-primary ${
-              filter === "weekday" ? "active" : ""
-            }`}
-            onClick={() => setFilter("weekday")}
-          >
-            วันธรรมดา
-          </button>
+              return (
+                <div className="calendar-avatars">
+                  {unavailableMembers.slice(0, 3).map((m) => (
+                    <img
+                      key={m.userId}
+                      src={m.picture || "https://via.placeholder.com/20"}
+                      alt={m.name}
+                      title={m.name}
+                    />
+                  ))}
+                  {unavailableMembers.length > 3 && (
+                    <span>+{unavailableMembers.length - 3}</span>
+                  )}
+                </div>
+              );
+            }}
+          />
+
+          <div className="btn-group w-100 mt-3" role="group" aria-label="filter">
+            <button
+              className={`btn btn-outline-success ${filter === "all" ? "active" : ""}`}
+              onClick={() => setFilter("all")}
+            >
+              ทั้งหมด
+            </button>
+            <button
+              className={`btn btn-outline-success ${filter === "weekend" ? "active" : ""}`}
+              onClick={() => setFilter("weekend")}
+            >
+              เสาร์-อาทิตย์
+            </button>
+            <button
+              className={`btn btn-outline-success ${filter === "weekday" ? "active" : ""}`}
+              onClick={() => setFilter("weekday")}
+            >
+              วันธรรมดา
+            </button>
+          </div>
         </div>
 
-        {/* ✅ ใครไม่ว่าง */}
-        <h5 className="mt-4">❌ ใครไม่ว่าง</h5>
-        {unavailableTable.length > 0 ? (
-          <ul className="list-group">
-            {unavailableTable.map((row, idx) => (
-              <li
-                key={idx}
-                className="list-group-item d-flex align-items-center"
-              >
-                <img
-                  src={row.picture || "https://via.placeholder.com/30"}
-                  alt={row.member}
-                  className="rounded-circle me-2"
-                  style={{ width: "30px", height: "30px" }}
-                />
-                {row.member} {row.formatted}
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-muted">ยังไม่มีข้อมูลคนไม่ว่าง</p>
-        )}
+        <aside className="d-grid gap-3">
+          <div className="soft-card p-4">
+            <h2 className="h5 fw-bold">วันที่ว่างตรงกัน</h2>
+            {commonDates.length > 0 ? (
+              <div className="list-group list-group-flush">
+                {commonDates.map((d) => (
+                  <div key={d} className="list-group-item px-0">
+                    {formatThaiDate(new Date(d))}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-muted mb-0">ยังไม่มีวันที่ว่างตรงกัน</p>
+            )}
+          </div>
 
-        {/* ✅ วันว่างตรงกัน */}
-        <h5 className="mt-4">✅ วันว่างตรงกัน</h5>
-        {commonDates.length > 0 ? (
-          <ul className="list-group">
-            {commonDates.map((d) => (
-              <li key={d} className="list-group-item">
-                {formatThaiDate(new Date(d))}
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-muted">ยังไม่มีวันว่างตรงกัน</p>
-        )}
-      </div>
+          <div className="soft-card p-4">
+            <h2 className="h5 fw-bold">คนที่ไม่ว่าง</h2>
+            {unavailableTable.length > 0 ? (
+              <div className="list-group list-group-flush">
+                {unavailableTable.map((row, idx) => (
+                  <div key={`${row.member}-${idx}`} className="list-group-item px-0 d-flex gap-2">
+                    <img
+                      src={row.picture || "https://via.placeholder.com/30"}
+                      alt={row.member}
+                      className="avatar"
+                    />
+                    <span>
+                      <strong>{row.member}</strong>
+                      <small className="d-block text-muted">{row.formatted}</small>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-muted mb-0">ยังไม่มีข้อมูลคนไม่ว่าง</p>
+            )}
+          </div>
+        </aside>
+      </section>
 
       <BackHomeButtons />
-    </div>
+    </>
   );
 }
 

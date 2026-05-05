@@ -1,10 +1,10 @@
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { db } from "../firebase";
-import { doc, setDoc, getDoc, updateDoc, arrayUnion } from "firebase/firestore";
-import { useAuth } from "../AuthContext";
+import { arrayUnion, doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
 import { v4 as uuidv4 } from "uuid";
 import Swal from "sweetalert2";
+import { db } from "../firebase";
+import { useAuth } from "../AuthContext";
 import BackHomeButtons from "./BackHomeButtons";
 
 function CreateOrJoinGroup() {
@@ -15,20 +15,15 @@ function CreateOrJoinGroup() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  useEffect(() => {
-    const query = new URLSearchParams(location.search);
-    const gid = query.get("groupId");
-    if (gid && user) {
-      handleJoin(gid);
-    }
-  }, [location, user]);
-
   const handleCreate = async () => {
-    if (!user || !groupName) return;
+    if (!user || !groupName.trim()) {
+      Swal.fire("กรอกชื่อกลุ่มก่อน", "", "info");
+      return;
+    }
 
     const gid = uuidv4().slice(0, 8);
     const groupData = {
-      name: groupName,
+      name: groupName.trim(),
       ownerId: user.userId,
       members: [
         {
@@ -44,17 +39,23 @@ function CreateOrJoinGroup() {
     await setDoc(doc(db, "groups", gid), groupData);
 
     setGroupId(gid);
-    setInviteLink(`${window.location.origin}/join?groupId=${gid}`);
-    Swal.fire("✅ สร้างกลุ่มเรียบร้อย", "", "success");
+    setInviteLink(`${window.location.origin}/creategroup?groupId=${gid}`);
+    Swal.fire("สำเร็จ", "สร้างกลุ่มเรียบร้อย", "success");
   };
 
-  const handleJoin = async (gid) => {
+  const handleJoin = useCallback(async (gid) => {
+    if (!gid?.trim()) {
+      Swal.fire("กรอกรหัสกลุ่มก่อน", "", "info");
+      return;
+    }
+
     try {
-      const ref = doc(db, "groups", gid);
+      const cleanId = gid.trim();
+      const ref = doc(db, "groups", cleanId);
       const snap = await getDoc(ref);
 
       if (!snap.exists()) {
-        Swal.fire("❌ ไม่พบกลุ่ม", "", "error");
+        Swal.fire("ไม่พบกลุ่ม", "ตรวจสอบรหัสกลุ่มอีกครั้ง", "error");
         return;
       }
 
@@ -62,8 +63,8 @@ function CreateOrJoinGroup() {
       const alreadyIn = group.members?.some((m) => m.userId === user.userId);
 
       if (alreadyIn) {
-        Swal.fire("ℹ️ คุณอยู่ในกลุ่มนี้แล้ว", group.name, "info");
-        navigate(`/group/${gid}`);
+        Swal.fire("คุณอยู่ในกลุ่มนี้แล้ว", group.name, "info");
+        navigate(`/group/${cleanId}`);
         return;
       }
 
@@ -76,91 +77,106 @@ function CreateOrJoinGroup() {
         }),
       });
 
-      Swal.fire("✅ เข้าร่วมกลุ่มเรียบร้อย", group.name, "success");
-      navigate(`/group/${gid}`);
+      Swal.fire("สำเร็จ", `เข้าร่วมกลุ่ม ${group.name} แล้ว`, "success");
+      navigate(`/group/${cleanId}`);
     } catch (err) {
       console.error(err);
-      Swal.fire("⚠️ มีข้อผิดพลาด", "ไม่สามารถเข้าร่วมกลุ่มได้", "error");
+      Swal.fire("เกิดข้อผิดพลาด", "ไม่สามารถเข้าร่วมกลุ่มได้", "error");
     }
-  };
+  }, [navigate, user]);
+
+  useEffect(() => {
+    const query = new URLSearchParams(location.search);
+    const gid = query.get("groupId");
+    if (gid && user) {
+      handleJoin(gid);
+    }
+  }, [handleJoin, location.search, user]);
 
   const handleCopy = (text) => {
     navigator.clipboard.writeText(text);
-    Swal.fire("📋 คัดลอกแล้ว", text, "success");
+    Swal.fire("คัดลอกแล้ว", "", "success");
   };
 
   return (
-    <div className="container mt-4">
-      <h3>สร้างหรือเข้าร่วมกลุ่ม</h3>
+    <>
+      <section className="page-header">
+        <div>
+          <h1 className="page-title">สร้างหรือเข้าร่วมกลุ่ม</h1>
+          <p className="page-subtitle">
+            สร้างกลุ่มเพื่อแชร์ลิงก์ให้เพื่อน หรือกรอกรหัสกลุ่มที่ได้รับมา
+          </p>
+        </div>
+      </section>
 
-      {/* ✅ สร้างกลุ่ม */}
-      <div className="card p-3 shadow-sm rounded-4 mb-4">
-        <h5 className="mb-3 text-success">🆕 สร้างกลุ่มใหม่</h5>
-        <input
-          type="text"
-          className="form-control mb-3"
-          placeholder="ชื่อกลุ่ม"
-          value={groupName}
-          onChange={(e) => setGroupName(e.target.value)}
-        />
-        <button className="btn btn-success" onClick={handleCreate}>
-          ✅ สร้างกลุ่ม
-        </button>
-      </div>
+      <section className="section-grid">
+        <div className="soft-card p-4">
+          <h2 className="h4 fw-bold">สร้างกลุ่มใหม่</h2>
+          <p className="text-muted">ตั้งชื่อกลุ่มให้จำง่าย เช่น ทริปเชียงใหม่ หรือ นัดกินข้าว</p>
+          <label className="form-label fw-bold" htmlFor="groupName">
+            ชื่อกลุ่ม
+          </label>
+          <input
+            id="groupName"
+            type="text"
+            className="form-control mb-3"
+            placeholder="กรอกชื่อกลุ่ม"
+            value={groupName}
+            onChange={(e) => setGroupName(e.target.value)}
+          />
+          <button className="btn btn-success w-100 py-3" onClick={handleCreate}>
+            สร้างกลุ่ม
+          </button>
+        </div>
+
+        <div className="soft-card p-4">
+          <h2 className="h4 fw-bold">เข้าร่วมกลุ่ม</h2>
+          <p className="text-muted">กรอกรหัส 8 ตัวอักษรจากเจ้าของกลุ่ม</p>
+          <label className="form-label fw-bold" htmlFor="joinCode">
+            รหัสกลุ่ม
+          </label>
+          <input
+            id="joinCode"
+            type="text"
+            className="form-control mb-3"
+            placeholder="เช่น ab12cd34"
+            value={groupId}
+            onChange={(e) => setGroupId(e.target.value)}
+          />
+          <button className="btn btn-outline-success w-100 py-3" onClick={() => handleJoin(groupId)}>
+            เข้าร่วมกลุ่ม
+          </button>
+        </div>
+      </section>
 
       {inviteLink && (
-        <div className="alert alert-info mt-3">
-          <p className="mb-2 fw-bold">🔗 ลิงก์เชิญ:</p>
-          <div className="d-flex gap-2 mb-3">
-            <input
-              type="text"
-              className="form-control"
-              value={inviteLink}
-              readOnly
-            />
-            <button
-              className="btn btn-outline-primary"
-              onClick={() => handleCopy(inviteLink)}
-            >
-              คัดลอก
-            </button>
+        <section className="soft-card p-4 mt-3">
+          <h2 className="h5 fw-bold">ส่งคำเชิญให้สมาชิก</h2>
+          <div className="row g-3 mt-1">
+            <div className="col-12 col-lg-8">
+              <label className="form-label fw-bold">ลิงก์เชิญ</label>
+              <input type="text" className="form-control" value={inviteLink} readOnly />
+            </div>
+            <div className="col-12 col-lg-4 d-flex align-items-end">
+              <button className="btn btn-outline-success w-100 py-3" onClick={() => handleCopy(inviteLink)}>
+                คัดลอกลิงก์
+              </button>
+            </div>
+            <div className="col-12 col-lg-8">
+              <label className="form-label fw-bold">รหัสกลุ่ม</label>
+              <input type="text" className="form-control" value={groupId} readOnly />
+            </div>
+            <div className="col-12 col-lg-4 d-flex align-items-end">
+              <button className="btn btn-outline-success w-100 py-3" onClick={() => handleCopy(groupId)}>
+                คัดลอกรหัส
+              </button>
+            </div>
           </div>
-
-          <p className="mb-2 fw-bold">📌 รหัสกลุ่ม:</p>
-          <div className="d-flex gap-2">
-            <input
-              type="text"
-              className="form-control"
-              value={groupId}
-              readOnly
-            />
-            <button
-              className="btn btn-outline-primary"
-              onClick={() => handleCopy(groupId)}
-            >
-              คัดลอก
-            </button>
-          </div>
-        </div>
+        </section>
       )}
 
-      {/* ✅ เข้าร่วมกลุ่ม */}
-      <div className="card p-3 shadow-sm rounded-4 mt-4">
-        <h5 className="mb-3 text-primary">👥 เข้าร่วมกลุ่ม</h5>
-        <input
-          type="text"
-          className="form-control mb-2"
-          placeholder="กรอกรหัสกลุ่ม"
-          value={groupId}
-          onChange={(e) => setGroupId(e.target.value)}
-        />
-        <button className="btn btn-primary" onClick={() => handleJoin(groupId)}>
-          🚪 เข้าร่วม
-        </button>
-      </div>
-
       <BackHomeButtons />
-    </div>
+    </>
   );
 }
 
