@@ -20,6 +20,20 @@ function Menu() {
       desc: "เลือกกลุ่มเพื่อหาวันที่ว่างตรงกัน",
     },
     {
+      name: "Timeline",
+      path: "/timeline",
+      icon: "T",
+      tone: "warn",
+      desc: "จัดตารางกิจกรรม วัน เวลา และสถานที่",
+    },
+    {
+      name: "ค่าใช้จ่าย",
+      path: "/bills",
+      icon: "฿",
+      tone: "alt",
+      desc: "บันทึกบิลและสรุปยอดที่ต้องจ่ายคืน",
+    },
+    {
       name: "สร้าง / เข้าร่วม",
       path: "/creategroup",
       icon: "+",

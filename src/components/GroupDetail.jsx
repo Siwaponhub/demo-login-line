@@ -70,9 +70,17 @@ function GroupDetail() {
             {group.members?.length || 0} สมาชิก {isOwner ? "คุณเป็นเจ้าของกลุ่ม" : ""}
           </p>
         </div>
-        <Link to={`/calendar/${id}`} className="btn btn-success px-4">
-          เปิดปฏิทิน
-        </Link>
+        <div className="d-flex flex-wrap gap-2">
+          <Link to={`/calendar/${id}`} className="btn btn-success px-4">
+            เปิดปฏิทิน
+          </Link>
+          <Link to={`/group/${id}/timeline`} className="btn btn-outline-success px-4">
+            Timeline
+          </Link>
+          <Link to={`/group/${id}/bills`} className="btn btn-outline-success px-4">
+            ค่าใช้จ่าย
+          </Link>
+        </div>
       </section>
 
       <section className="soft-card p-4 mb-3">

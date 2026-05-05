@@ -1,6 +1,40 @@
 import { db } from "../firebase";
-import { collection, addDoc } from "firebase/firestore";
+import {
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  getDocs,
+  serverTimestamp,
+  updateDoc,
+} from "firebase/firestore";
 
-export async function addTimeline(tripId, item) {
-  return await addDoc(collection(db, `trips/${tripId}/timeline`), item);
+const timelineCollection = (groupId) =>
+  collection(db, "groups", groupId, "timeline");
+
+export async function getTimelineItems(groupId) {
+  const snapshot = await getDocs(timelineCollection(groupId));
+  return snapshot.docs.map((docSnap) => ({
+    id: docSnap.id,
+    ...docSnap.data(),
+  }));
+}
+
+export async function addTimelineItem(groupId, item) {
+  return addDoc(timelineCollection(groupId), {
+    ...item,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+}
+
+export async function updateTimelineItem(groupId, itemId, item) {
+  return updateDoc(doc(db, "groups", groupId, "timeline", itemId), {
+    ...item,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+export async function deleteTimelineItem(groupId, itemId) {
+  return deleteDoc(doc(db, "groups", groupId, "timeline", itemId));
 }

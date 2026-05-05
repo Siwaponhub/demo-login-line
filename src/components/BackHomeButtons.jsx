@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 function BackHomeButtons() {
   const navigate = useNavigate();
   const location = useLocation();
-  const isGroupDetail = location.pathname.startsWith("/group/");
+  const isGroupDetail = /^\/group\/[^/]+$/.test(location.pathname);
 
   return (
     <div className="back-actions">

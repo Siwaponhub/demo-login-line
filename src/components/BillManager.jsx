@@ -1,181 +1,524 @@
-import { useState, useEffect } from "react";
-import { collection, getDocs } from "firebase/firestore";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link, useParams } from "react-router-dom";
+import { collection, doc, getDoc, getDocs } from "firebase/firestore";
+import Swal from "sweetalert2";
 import { db } from "../firebase";
-import { createBill } from "../services/billService";
-import BackHomeButtons from "./BackHomeButtons";
-import { showSuccess, showConfirm, showWarning } from "../utils/alertService";
+import { createBill, deleteBill, getBills, updateBill } from "../services/billService";
 import { useAuth } from "../AuthContext";
+import BackHomeButtons from "./BackHomeButtons";
+
+const emptyBill = {
+  title: "",
+  amount: "",
+  payerId: "",
+  participants: [],
+};
+
+const money = (amount) =>
+  Number(amount || 0).toLocaleString("th-TH", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 
 function BillManager() {
-  const [tripName, setTripName] = useState("");
-  const [totalAmount, setTotalAmount] = useState("");
-  const [users, setUsers] = useState([]);
-  const [selectedUsers, setSelectedUsers] = useState([]);
+  const { id } = useParams();
   const { user } = useAuth();
+  const [groups, setGroups] = useState([]);
+  const [group, setGroup] = useState(null);
+  const [bills, setBills] = useState([]);
+  const [form, setForm] = useState(emptyBill);
+  const [editingId, setEditingId] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  const isGroupRoute = Boolean(id);
+  const members = useMemo(() => group?.members || [], [group]);
+
+  const fetchGroups = useCallback(async () => {
+    if (!user) return;
+
+    try {
+      setLoading(true);
+      const snapshot = await getDocs(collection(db, "groups"));
+      const allGroups = snapshot.docs.map((docSnap) => ({
+        id: docSnap.id,
+        ...docSnap.data(),
+      }));
+      setGroups(
+        allGroups.filter(
+          (g) =>
+            g.ownerId === user.userId ||
+            g.members?.some((member) => member.userId === user.userId)
+        )
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [user]);
+
+  const fetchGroupBills = useCallback(async (groupId) => {
+    try {
+      setLoading(true);
+      const groupSnap = await getDoc(doc(db, "groups", groupId));
+      if (!groupSnap.exists()) {
+        setGroup(null);
+        setBills([]);
+        return;
+      }
+      const groupData = { id: groupSnap.id, ...groupSnap.data() };
+      setGroup(groupData);
+      setForm((current) => ({
+        ...current,
+        payerId: current.payerId || user?.userId || groupData.members?.[0]?.userId || "",
+      }));
+      setBills(await getBills(groupId));
+    } catch (err) {
+      console.error(err);
+      Swal.fire("เกิดข้อผิดพลาด", "ไม่สามารถโหลดบิลได้", "error");
+    } finally {
+      setLoading(false);
+    }
+  }, [user]);
 
   useEffect(() => {
-    const fetchUsers = async () => {
-      const snapshot = await getDocs(collection(db, "users"));
-      const usersData = snapshot.docs.map((doc) => ({
-        userId: doc.id,
-        ...doc.data(),
-      }));
-      setUsers(usersData);
-    };
-    fetchUsers();
-  }, []);
-
-  const toggleUser = (u) => {
-    if (selectedUsers.some((sel) => sel.userId === u.userId)) {
-      setSelectedUsers(selectedUsers.filter((sel) => sel.userId !== u.userId));
+    if (isGroupRoute) {
+      fetchGroupBills(id);
     } else {
-      setSelectedUsers([...selectedUsers, { ...u, share: 0 }]);
+      fetchGroups();
     }
+  }, [fetchGroupBills, fetchGroups, id, isGroupRoute]);
+
+  const selectedTotal = useMemo(
+    () => form.participants.reduce((sum, participant) => sum + Number(participant.share || 0), 0),
+    [form.participants]
+  );
+
+  const billSummary = useMemo(() => {
+    const rows = [];
+
+    bills.forEach((bill) => {
+      const payer = members.find((member) => member.userId === bill.payerId);
+      bill.participants?.forEach((participant) => {
+        if (participant.userId === bill.payerId) return;
+        const share = Number(participant.share || 0);
+        if (share <= 0) return;
+
+        rows.push({
+          billId: bill.id,
+          billTitle: bill.title,
+          payerName: payer?.name || bill.payerName || "ผู้จ่าย",
+          debtorName: participant.name,
+          amount: share,
+        });
+      });
+    });
+
+    return rows;
+  }, [bills, members]);
+
+  const summaryByPerson = useMemo(() => {
+    const map = new Map();
+    billSummary.forEach((row) => {
+      const key = `${row.debtorName}->${row.payerName}`;
+      const current = map.get(key) || {
+        debtorName: row.debtorName,
+        payerName: row.payerName,
+        amount: 0,
+      };
+      current.amount += row.amount;
+      map.set(key, current);
+    });
+    return Array.from(map.values());
+  }, [billSummary]);
+
+  const updateForm = (field, value) => {
+    setForm((current) => ({ ...current, [field]: value }));
   };
 
-  const updateShare = (id, value) => {
-    setSelectedUsers(
-      selectedUsers.map((sel) =>
-        sel.userId === id ? { ...sel, share: Number(value) || 0 } : sel
-      )
-    );
+  const resetForm = () => {
+    setForm({
+      ...emptyBill,
+      payerId: user?.userId || members[0]?.userId || "",
+    });
+    setEditingId(null);
+  };
+
+  const toggleParticipant = (member) => {
+    setForm((current) => {
+      const exists = current.participants.some((participant) => participant.userId === member.userId);
+      return {
+        ...current,
+        participants: exists
+          ? current.participants.filter((participant) => participant.userId !== member.userId)
+          : [
+              ...current.participants,
+              {
+                userId: member.userId,
+                name: member.name,
+                email: member.email || "",
+                picture: member.picture || "",
+                share: 0,
+              },
+            ],
+      };
+    });
+  };
+
+  const selectAllMembers = () => {
+    setForm((current) => ({
+      ...current,
+      participants: members.map((member) => ({
+        userId: member.userId,
+        name: member.name,
+        email: member.email || "",
+        picture: member.picture || "",
+        share: 0,
+      })),
+    }));
+  };
+
+  const clearParticipants = () => {
+    setForm((current) => ({ ...current, participants: [] }));
+  };
+
+  const updateShare = (userId, value) => {
+    setForm((current) => ({
+      ...current,
+      participants: current.participants.map((participant) =>
+        participant.userId === userId
+          ? { ...participant, share: Number(value) || 0 }
+          : participant
+      ),
+    }));
   };
 
   const splitEqually = () => {
-    if (totalAmount && selectedUsers.length > 0) {
-      const perPerson = Math.floor(totalAmount / selectedUsers.length);
-      setSelectedUsers(
-        selectedUsers.map((sel) => ({ ...sel, share: perPerson }))
-      );
-    }
-  };
-
-  const handleCreate = async () => {
-    if (!tripName || !totalAmount) {
-      showWarning("ข้อมูลไม่ครบ", "กรุณากรอกชื่อบิลและยอดรวม");
+    const amount = Number(form.amount || 0);
+    if (amount <= 0 || form.participants.length === 0) {
+      Swal.fire("ยังหารไม่ได้", "กรอกยอดรวมและเลือกสมาชิกก่อน", "info");
       return;
     }
 
-    const sumShares = selectedUsers.reduce((sum, u) => sum + u.share, 0);
-    if (sumShares !== Number(totalAmount)) {
-      const result = await showConfirm(
-        "ยอดไม่ตรงกัน",
-        `ยอดรวมรายคน (${sumShares}) ไม่เท่ากับยอดบิล (${totalAmount}) ต้องการบันทึกต่อหรือไม่?`
-      );
+    const perPerson = Number((amount / form.participants.length).toFixed(2));
+    const roundedTotal = perPerson * form.participants.length;
+    const diff = Number((amount - roundedTotal).toFixed(2));
+
+    setForm((current) => ({
+      ...current,
+      participants: current.participants.map((participant, index) => ({
+        ...participant,
+        share: Number((perPerson + (index === 0 ? diff : 0)).toFixed(2)),
+      })),
+    }));
+  };
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+
+    const amount = Number(form.amount || 0);
+    if (!form.title.trim() || amount <= 0 || !form.payerId || form.participants.length === 0) {
+      Swal.fire("ข้อมูลไม่ครบ", "กรอกชื่อบิล ยอดรวม ผู้จ่าย และสมาชิกที่ร่วมบิล", "info");
+      return;
+    }
+
+    const shareTotal = Number(selectedTotal.toFixed(2));
+    if (shareTotal !== Number(amount.toFixed(2))) {
+      const result = await Swal.fire({
+        icon: "warning",
+        title: "ยอดรวมรายคนไม่ตรงกับยอดบิล",
+        text: `ยอดรายคนรวม ${money(shareTotal)} บาท แต่ยอดบิลคือ ${money(amount)} บาท`,
+        showCancelButton: true,
+        confirmButtonText: "บันทึกต่อ",
+        cancelButtonText: "กลับไปแก้",
+      });
       if (!result.isConfirmed) return;
     }
 
-    await createBill(tripName, user.userId, Number(totalAmount), selectedUsers);
-    showSuccess("✅ สร้างบิลสำเร็จ", `บิล "${tripName}" ถูกบันทึกเรียบร้อย`);
-    setTripName("");
-    setTotalAmount("");
-    setSelectedUsers([]);
+    const payer = members.find((member) => member.userId === form.payerId);
+    const payload = {
+      title: form.title.trim(),
+      amount,
+      payerId: form.payerId,
+      payerName: payer?.name || "",
+      participants: form.participants,
+      updatedBy: user.userId,
+    };
+
+    try {
+      if (editingId) {
+        await updateBill(id, editingId, payload);
+        Swal.fire("สำเร็จ", "แก้ไขบิลแล้ว", "success");
+      } else {
+        await createBill(id, {
+          ...payload,
+          createdBy: user.userId,
+        });
+        Swal.fire("สำเร็จ", "สร้างบิลแล้ว", "success");
+      }
+
+      resetForm();
+      setBills(await getBills(id));
+    } catch (err) {
+      console.error(err);
+      Swal.fire("เกิดข้อผิดพลาด", "ไม่สามารถบันทึกบิลได้", "error");
+    }
   };
 
-  return (
-    <div className="container mt-4">
-      <div className="card shadow-lg rounded-4 p-4">
-        <h3 className="mb-4 fw-bold text-primary">💰 สร้างบิลหารค่าใช้จ่าย</h3>
+  const handleEdit = (bill) => {
+    setEditingId(bill.id);
+    setForm({
+      title: bill.title || "",
+      amount: bill.amount || "",
+      payerId: bill.payerId || user?.userId || "",
+      participants: bill.participants || [],
+    });
+  };
 
-        {/* ชื่อบิล */}
-        <div className="mb-3">
-          <label className="form-label fw-bold">📌 ชื่อบิล</label>
-          <input
-            type="text"
-            className="form-control form-control-lg"
-            value={tripName}
-            onChange={(e) => setTripName(e.target.value)}
-            placeholder="เช่น ทริปเชียงใหม่"
-          />
-        </div>
+  const handleDelete = async (billId) => {
+    const result = await Swal.fire({
+      icon: "warning",
+      title: "ลบบิลนี้?",
+      text: "ข้อมูลยอดค่าใช้จ่ายของบิลนี้จะถูกลบ",
+      showCancelButton: true,
+      confirmButtonText: "ลบ",
+      cancelButtonText: "ยกเลิก",
+      confirmButtonColor: "#dc3545",
+    });
+    if (!result.isConfirmed) return;
 
-        {/* ยอดรวม */}
-        <div className="mb-3">
-          <label className="form-label fw-bold">💵 ยอดรวมบิล (บาท)</label>
-          <input
-            type="number"
-            className="form-control form-control-lg"
-            value={totalAmount}
-            onChange={(e) => setTotalAmount(e.target.value)}
-            placeholder="กรอกยอดรวม"
-          />
-        </div>
+    await deleteBill(id, billId);
+    setBills(bills.filter((bill) => bill.id !== billId));
+    Swal.fire("สำเร็จ", "ลบบิลแล้ว", "success");
+  };
 
-        {/* เลือกเพื่อน */}
-        <div className="mb-3">
-          <h5 className="fw-bold">👥 เลือกผู้เข้าร่วม</h5>
-          <div className="list-group shadow-sm rounded-3">
-            {users.map((u) => (
-              <label
-                key={u.userId}
-                className="list-group-item d-flex align-items-center"
-                style={{ cursor: "pointer" }}
-              >
-                <input
-                  type="checkbox"
-                  checked={selectedUsers.some((sel) => sel.userId === u.userId)}
-                  onChange={() => toggleUser(u)}
-                  className="form-check-input me-2"
-                />
-                <img
-                  src={u.picture || "https://via.placeholder.com/40"}
-                  alt={u.name}
-                  className="rounded-circle me-3 shadow-sm"
-                  style={{ width: "40px", height: "40px" }}
-                />
-                <span className="fw-semibold">{u.name}</span>
-              </label>
-            ))}
+  if (!isGroupRoute) {
+    return (
+      <>
+        <section className="page-header">
+          <div>
+            <h1 className="page-title">ค่าใช้จ่ายทริป</h1>
+            <p className="page-subtitle">เลือกกลุ่มเพื่อสร้างบิลและดูสรุปยอดที่ต้องจ่ายคืน</p>
           </div>
-        </div>
+        </section>
 
-        {/* ยอดรายคน */}
-        {selectedUsers.length > 0 && (
-          <div className="mb-3">
-            <h5 className="fw-bold">🧾 กำหนดยอดรายคน</h5>
-            {selectedUsers.map((sel) => (
-              <div
-                key={sel.userId}
-                className="input-group mb-2 shadow-sm rounded"
-              >
-                <span className="input-group-text bg-light">
-                  <img
-                    src={sel.picture || "https://via.placeholder.com/30"}
-                    alt={sel.name}
-                    className="rounded-circle me-2"
-                    style={{ width: "30px", height: "30px" }}
-                  />
-                  {/* {sel.name} */}
+        {loading ? (
+          <div className="soft-card empty-state">กำลังโหลดข้อมูลกลุ่ม...</div>
+        ) : groups.length === 0 ? (
+          <div className="soft-card empty-state">ยังไม่มีกลุ่มที่เข้าร่วม</div>
+        ) : (
+          <div className="section-grid">
+            {groups.map((g) => (
+              <Link key={g.id} to={`/group/${g.id}/bills`} className="menu-card">
+                <span className="tile-icon alt">฿</span>
+                <span>
+                  <h2>{g.name}</h2>
+                  <p>จัดการบิลและสรุปยอด</p>
                 </span>
-                <input
-                  type="number"
-                  className="form-control"
-                  value={sel.share}
-                  onChange={(e) => updateShare(sel.userId, e.target.value)}
-                  placeholder="0"
-                />
-                <span className="input-group-text">฿</span>
-              </div>
+              </Link>
             ))}
-
-            <button
-              type="button"
-              onClick={splitEqually}
-              className="btn btn-outline-info w-100 mt-2"
-            >
-              🔄 หารเท่ากันอัตโนมัติ
-            </button>
           </div>
         )}
 
-        {/* ปุ่มสร้างบิล */}
-        <button onClick={handleCreate} className="btn btn-success btn-lg w-100">
-          ✅ สร้างบิล
-        </button>
-      </div>
+        <BackHomeButtons />
+      </>
+    );
+  }
+
+  if (loading) {
+    return <div className="soft-card empty-state">กำลังโหลดค่าใช้จ่าย...</div>;
+  }
+
+  if (!group) {
+    return <div className="soft-card empty-state">ไม่พบกลุ่มนี้</div>;
+  }
+
+  return (
+    <>
+      <section className="page-header">
+        <div>
+          <h1 className="page-title">ค่าใช้จ่ายทริป</h1>
+          <p className="page-subtitle">{group.name}</p>
+        </div>
+      </section>
+
+      <section className="calendar-layout">
+        <form className="soft-card p-4" onSubmit={handleSubmit}>
+          <h2 className="h4 fw-bold">{editingId ? "แก้ไขบิล" : "เพิ่มบิล"}</h2>
+
+          <label className="form-label fw-bold mt-3">ชื่อบิล</label>
+          <input
+            className="form-control"
+            value={form.title}
+            onChange={(e) => updateForm("title", e.target.value)}
+            placeholder="เช่น ค่าที่พัก คืนแรก"
+          />
+
+          <div className="row g-3 mt-1">
+            <div className="col-12 col-md-6">
+              <label className="form-label fw-bold">ยอดรวม</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                className="form-control"
+                value={form.amount}
+                onChange={(e) => updateForm("amount", e.target.value)}
+                placeholder="0.00"
+              />
+            </div>
+            <div className="col-12 col-md-6">
+              <label className="form-label fw-bold">คนออกเงิน</label>
+              <select
+                className="form-control"
+                value={form.payerId}
+                onChange={(e) => updateForm("payerId", e.target.value)}
+              >
+                <option value="">เลือกผู้จ่าย</option>
+                {members.map((member) => (
+                  <option key={member.userId} value={member.userId}>
+                    {member.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="d-flex justify-content-between align-items-center gap-2 mt-4">
+            <h3 className="h5 fw-bold mb-0">สมาชิกที่ร่วมบิล</h3>
+            <div className="d-flex gap-2">
+              <button type="button" className="btn btn-sm btn-outline-success" onClick={selectAllMembers}>
+                ทุกคน
+              </button>
+              <button type="button" className="btn btn-sm btn-light border" onClick={clearParticipants}>
+                ล้าง
+              </button>
+            </div>
+          </div>
+
+          <div className="list-group mt-3">
+            {members.map((member) => (
+              <label key={member.userId} className="list-group-item d-flex align-items-center gap-3">
+                <input
+                  type="checkbox"
+                  className="form-check-input"
+                  checked={form.participants.some((participant) => participant.userId === member.userId)}
+                  onChange={() => toggleParticipant(member)}
+                />
+                <img
+                  src={member.picture || "https://via.placeholder.com/40"}
+                  alt={member.name}
+                  className="avatar"
+                />
+                <span className="fw-bold">{member.name}</span>
+              </label>
+            ))}
+          </div>
+
+          {form.participants.length > 0 && (
+            <div className="mt-4">
+              <div className="d-flex justify-content-between align-items-center gap-2">
+                <h3 className="h5 fw-bold mb-0">ยอดรายคน</h3>
+                <button type="button" className="btn btn-sm btn-outline-success" onClick={splitEqually}>
+                  หารเท่ากัน
+                </button>
+              </div>
+
+              <div className="d-grid gap-2 mt-3">
+                {form.participants.map((participant) => (
+                  <div key={participant.userId} className="input-group">
+                    <span className="input-group-text bg-white">
+                      <img
+                        src={participant.picture || "https://via.placeholder.com/30"}
+                        alt={participant.name}
+                        className="avatar me-2"
+                      />
+                      {participant.name}
+                    </span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      className="form-control"
+                      value={participant.share}
+                      onChange={(e) => updateShare(participant.userId, e.target.value)}
+                    />
+                    <span className="input-group-text">บาท</span>
+                  </div>
+                ))}
+              </div>
+
+              <p className="text-muted mt-2 mb-0">
+                ยอดรายคนรวม {money(selectedTotal)} บาท
+              </p>
+            </div>
+          )}
+
+          <div className="d-flex gap-2 mt-4">
+            <button className="btn btn-success flex-fill py-3" type="submit">
+              {editingId ? "บันทึกการแก้ไข" : "สร้างบิล"}
+            </button>
+            {editingId && (
+              <button className="btn btn-light border py-3" type="button" onClick={resetForm}>
+                ยกเลิก
+              </button>
+            )}
+          </div>
+        </form>
+
+        <aside className="d-grid gap-3">
+          <div className="soft-card p-4">
+            <h2 className="h4 fw-bold">สรุปยอดต้องชำระ</h2>
+            {summaryByPerson.length === 0 ? (
+              <p className="text-muted mb-0">ยังไม่มีรายการที่ต้องจ่ายคืน</p>
+            ) : (
+              <div className="list-group list-group-flush">
+                {summaryByPerson.map((row) => (
+                  <div key={`${row.debtorName}-${row.payerName}`} className="list-group-item px-0">
+                    <strong>{row.debtorName}</strong> จ่ายให้ <strong>{row.payerName}</strong>
+                    <span className="d-block text-success fw-bold">{money(row.amount)} บาท</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="soft-card p-4">
+            <h2 className="h4 fw-bold">รายการบิล</h2>
+            {bills.length === 0 ? (
+              <p className="text-muted mb-0">ยังไม่มีบิล</p>
+            ) : (
+              <div className="d-grid gap-3">
+                {bills.map((bill) => (
+                  <article key={bill.id} className="border rounded-4 p-3 bg-white">
+                    <div className="d-flex justify-content-between gap-3">
+                      <div>
+                        <h3 className="h5 fw-bold mb-1">{bill.title}</h3>
+                        <p className="text-muted mb-1">
+                          รวม {money(bill.amount)} บาท
+                        </p>
+                        <p className="mb-0">ออกโดย {bill.payerName || "ผู้จ่าย"}</p>
+                      </div>
+                    </div>
+                    <div className="mt-3 small text-muted">
+                      {bill.participants?.length || 0} คนร่วมบิล
+                    </div>
+                    <div className="d-flex gap-2 mt-3">
+                      <button className="btn btn-sm btn-outline-primary" onClick={() => handleEdit(bill)}>
+                        แก้ไข
+                      </button>
+                      <button className="btn btn-sm btn-outline-danger" onClick={() => handleDelete(bill.id)}>
+                        ลบ
+                      </button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </div>
+        </aside>
+      </section>
 
       <BackHomeButtons />
-    </div>
+    </>
   );
 }
 

@@ -40,6 +40,8 @@ function App() {
         <Route path="/menu" element={withAuth(<Menu />)} />
         <Route path="/dashboard" element={withAuth(<Dashboard />)} />
         <Route path="/group/:id" element={withAuth(<GroupDetail />)} />
+        <Route path="/group/:id/bills" element={withAuth(<BillManager />)} />
+        <Route path="/group/:id/timeline" element={withAuth(<Timeline />)} />
         <Route path="/bills" element={withAuth(<BillManager />)} />
         <Route path="/timeline" element={withAuth(<Timeline />)} />
         <Route path="/calendar" element={withAuth(<CalendarGroups />)} />
