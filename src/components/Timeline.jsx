@@ -97,6 +97,8 @@ function Timeline() {
   const [editingId, setEditingId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [dayDateDrafts, setDayDateDrafts] = useState({});
+  const [activeDayNumber, setActiveDayNumber] = useState(null);
 
   const isGroupRoute = Boolean(id);
 
@@ -117,9 +119,7 @@ function Timeline() {
     const groupsByDay = new Map();
     sortedItems.forEach((item) => {
       const dayNumber = Number(item.dayNumber || 1);
-      if (!groupsByDay.has(dayNumber)) {
-        groupsByDay.set(dayNumber, []);
-      }
+      if (!groupsByDay.has(dayNumber)) groupsByDay.set(dayNumber, []);
       groupsByDay.get(dayNumber).push(item);
     });
 
@@ -129,6 +129,37 @@ function Timeline() {
       items: dayItems,
     }));
   }, [sortedItems]);
+
+  useEffect(() => {
+    setDayDateDrafts((current) => {
+      const next = { ...current };
+      groupedItems.forEach((dayGroup) => {
+        if (next[dayGroup.dayNumber] === undefined) {
+          next[dayGroup.dayNumber] = dayGroup.date || "";
+        }
+      });
+      return next;
+    });
+  }, [groupedItems]);
+
+  useEffect(() => {
+    if (groupedItems.length === 0) {
+      setActiveDayNumber(null);
+      return;
+    }
+
+    const stillExists = groupedItems.some(
+      (dayGroup) => dayGroup.dayNumber === activeDayNumber
+    );
+    if (!stillExists) setActiveDayNumber(groupedItems[0].dayNumber);
+  }, [activeDayNumber, groupedItems]);
+
+  const activeDayGroup = useMemo(
+    () =>
+      groupedItems.find((dayGroup) => dayGroup.dayNumber === activeDayNumber) ||
+      groupedItems[0],
+    [activeDayNumber, groupedItems]
+  );
 
   const fetchGroups = useCallback(async () => {
     if (!user) return;
@@ -192,7 +223,7 @@ function Timeline() {
   const openCreateForm = () => {
     setForm({
       ...emptyForm,
-      dayNumber: groupedItems.at(-1)?.dayNumber || 1,
+      dayNumber: activeDayNumber || groupedItems.at(-1)?.dayNumber || 1,
     });
     setEditingId(null);
     setShowForm(true);
@@ -207,7 +238,7 @@ function Timeline() {
     }
 
     if (form.endTime && form.endTime < form.startTime) {
-      Swal.fire("เวลาไม่ถูกต้อง", "เวลาสิ้นสุดต้องไม่เร็วกเวลาเริ่มต้น", "info");
+      Swal.fire("เวลาไม่ถูกต้อง", "เวลาสิ้นสุดต้องไม่เร็วกว่าเวลาเริ่มต้น", "info");
       return;
     }
 
@@ -236,6 +267,7 @@ function Timeline() {
       }
 
       resetForm();
+      setActiveDayNumber(payload.dayNumber);
       setItems(await getTimelineItems(id));
     } catch (err) {
       console.error(err);
@@ -255,6 +287,7 @@ function Timeline() {
       mapLink: item.mapLink || "",
       note: item.note || "",
     });
+    setActiveDayNumber(Number(item.dayNumber || 1));
     setShowForm(true);
   };
 
@@ -273,6 +306,43 @@ function Timeline() {
     await deleteTimelineItem(id, itemId);
     setItems(items.filter((item) => item.id !== itemId));
     Swal.fire("สำเร็จ", "ลบกิจกรรมแล้ว", "success");
+  };
+
+  const handleDayDateChange = (dayNumber, value) => {
+    setDayDateDrafts((current) => ({
+      ...current,
+      [dayNumber]: value,
+    }));
+  };
+
+  const handleSaveDayDate = async (dayGroup) => {
+    const nextDate = dayDateDrafts[dayGroup.dayNumber] || "";
+    if (!nextDate) {
+      Swal.fire("เลือกวันที่ก่อน", "กรุณาเลือกวันที่ของ Day นี้", "info");
+      return;
+    }
+
+    try {
+      await Promise.all(
+        dayGroup.items.map((item) =>
+          updateTimelineItem(id, item.id, {
+            date: nextDate,
+            updatedBy: user.userId,
+          })
+        )
+      );
+      setItems((current) =>
+        current.map((item) =>
+          Number(item.dayNumber || 1) === dayGroup.dayNumber
+            ? { ...item, date: nextDate }
+            : item
+        )
+      );
+      Swal.fire("สำเร็จ", `อัปเดตวันที่ของ Day ${dayGroup.dayNumber} แล้ว`, "success");
+    } catch (err) {
+      console.error(err);
+      Swal.fire("เกิดข้อผิดพลาด", "ไม่สามารถอัปเดตวันที่ของ Day นี้ได้", "error");
+    }
   };
 
   if (!isGroupRoute) {
@@ -443,16 +513,55 @@ function Timeline() {
             <p>กดเพิ่มกิจกรรมเพื่อเริ่มวางแผน timeline ของกลุ่มนี้</p>
           </div>
         ) : (
-          <div className="timeline-days">
-            {groupedItems.map((dayGroup) => (
-              <section key={dayGroup.dayNumber} className="timeline-day">
-                <div className="timeline-day-header">
+          <>
+            <div className="timeline-day-switcher" aria-label="เลือก Day">
+              {groupedItems.map((dayGroup) => (
+                <button
+                  key={dayGroup.dayNumber}
+                  type="button"
+                  className={`timeline-day-tab ${
+                    activeDayGroup?.dayNumber === dayGroup.dayNumber ? "active" : ""
+                  }`}
+                  onClick={() => setActiveDayNumber(dayGroup.dayNumber)}
+                >
                   <span>Day {dayGroup.dayNumber}</span>
                   {dayGroup.date && <small>{formatDate(dayGroup.date)}</small>}
+                </button>
+              ))}
+            </div>
+
+            {activeDayGroup && (
+              <section className="timeline-day timeline-day-active">
+                <div className="timeline-day-header">
+                  <div>
+                    <span>Day {activeDayGroup.dayNumber}</span>
+                    {activeDayGroup.date && <small>{formatDate(activeDayGroup.date)}</small>}
+                  </div>
+                  <div className="day-date-editor">
+                    <input
+                      type="date"
+                      className="form-control"
+                      value={
+                        dayDateDrafts[activeDayGroup.dayNumber] ??
+                        activeDayGroup.date ??
+                        ""
+                      }
+                      onChange={(event) =>
+                        handleDayDateChange(activeDayGroup.dayNumber, event.target.value)
+                      }
+                    />
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-outline-success"
+                      onClick={() => handleSaveDayDate(activeDayGroup)}
+                    >
+                      บันทึกวันที่
+                    </button>
+                  </div>
                 </div>
 
                 <div className="timeline-list">
-                  {dayGroup.items.map((item) => {
+                  {activeDayGroup.items.map((item) => {
                     const startTime = item.startTime || item.time || "";
                     const timeRange = item.endTime
                       ? `${startTime} - ${item.endTime}`
@@ -499,8 +608,8 @@ function Timeline() {
                   })}
                 </div>
               </section>
-            ))}
-          </div>
+            )}
+          </>
         )}
       </section>
 
