@@ -462,7 +462,51 @@
   gap: 16px;
 }
 
+.bill-switcher {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding-bottom: 8px;
+  overflow-x: auto;
+}
+
+.bill-tab {
+  flex: 0 0 auto;
+  min-width: 150px;
+  max-width: 220px;
+  padding: 10px 14px;
+  border: 1px solid #dce3ee;
+  border-radius: 14px;
+  background: #fff;
+  color: #172033;
+  text-align: left;
+}
+
+.bill-tab.active {
+  border-color: rgba(35, 116, 171, 0.55);
+  background: rgba(35, 116, 171, 0.1);
+  box-shadow: inset 0 0 0 1px rgba(35, 116, 171, 0.18);
+}
+
+.bill-tab span,
+.bill-tab small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bill-tab span {
+  font-weight: 850;
+}
+
+.bill-tab small {
+  color: #6c788a;
+  font-size: 0.78rem;
+}
+
 .bill-card {
+  min-width: 0;
   padding: 18px;
   border: 1px solid #dce3ee;
   border-radius: 18px;
@@ -473,14 +517,22 @@
   display: flex;
   justify-content: space-between;
   gap: 18px;
+  min-width: 0;
   padding-bottom: 14px;
   border-bottom: 1px solid #eef2f7;
 }
 
+.bill-card-header > div {
+  min-width: 0;
+}
+
 .bill-card-header h3 {
   margin: 0;
+  overflow: hidden;
   font-size: 1.18rem;
   font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .bill-card-header p {
@@ -490,9 +542,11 @@
 
 .bill-card-header strong {
   flex: 0 0 auto;
+  max-width: 46%;
   color: #06a346;
   font-size: 1.25rem;
   text-align: right;
+  overflow-wrap: anywhere;
 }
 
 .bill-participants {
@@ -527,6 +581,9 @@
 
 .bill-participant-row strong {
   flex: 0 0 auto;
+  max-width: 44%;
+  overflow-wrap: anywhere;
+  text-align: right;
 }
 
 .list-group-item {
@@ -677,10 +734,14 @@
   .bill-card-header strong {
     display: block;
     margin-top: 10px;
+    max-width: 100%;
+    font-size: clamp(1rem, 6vw, 1.25rem);
     text-align: left;
   }
 
   .bill-participant-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
     align-items: flex-start;
   }
 
@@ -714,6 +775,34 @@
   }
 
   .bill-participant-row strong {
+    max-width: 100%;
+    padding-left: 42px;
+    text-align: left;
     white-space: nowrap;
+  }
+}
+
+@media (max-width: 420px) {
+  .bill-card {
+    padding: 14px;
+  }
+
+  .bill-switcher {
+    margin-right: -12px;
+    margin-left: -12px;
+    padding-inline: 12px;
+  }
+
+  .bill-tab {
+    min-width: 132px;
+    max-width: 180px;
+  }
+
+  .bill-card-header strong {
+    white-space: normal;
+  }
+
+  .bill-participant-row strong {
+    white-space: normal;
   }
 }

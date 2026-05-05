@@ -30,6 +30,7 @@ function BillManager() {
   const [editingId, setEditingId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [activeBillId, setActiveBillId] = useState(null);
 
   const isGroupRoute = Boolean(id);
   const members = useMemo(() => group?.members || [], [group]);
@@ -37,6 +38,22 @@ function BillManager() {
   const totalTripAmount = useMemo(
     () => bills.reduce((sum, bill) => sum + Number(bill.amount || 0), 0),
     [bills]
+  );
+
+  useEffect(() => {
+    if (bills.length === 0) {
+      setActiveBillId(null);
+      return;
+    }
+
+    if (!bills.some((bill) => bill.id === activeBillId)) {
+      setActiveBillId(bills[0].id);
+    }
+  }, [activeBillId, bills]);
+
+  const activeBill = useMemo(
+    () => bills.find((bill) => bill.id === activeBillId) || bills[0],
+    [activeBillId, bills]
   );
 
   const fetchGroups = useCallback(async () => {
@@ -71,12 +88,14 @@ function BillManager() {
         return;
       }
       const groupData = { id: groupSnap.id, ...groupSnap.data() };
+      const nextBills = await getBills(groupId);
       setGroup(groupData);
+      setBills(nextBills);
       setForm((current) => ({
         ...current,
         payerId: current.payerId || user?.userId || groupData.members?.[0]?.userId || "",
       }));
-      setBills(await getBills(groupId));
+      setActiveBillId((current) => current || nextBills[0]?.id || null);
     } catch (err) {
       console.error(err);
       Swal.fire("เกิดข้อผิดพลาด", "ไม่สามารถโหลดบิลได้", "error");
@@ -98,42 +117,31 @@ function BillManager() {
     [form.participants]
   );
 
-  const billSummary = useMemo(() => {
-    const rows = [];
+  const summaryByPerson = useMemo(() => {
+    const map = new Map();
 
     bills.forEach((bill) => {
       const payer = members.find((member) => member.userId === bill.payerId);
+      const payerName = payer?.name || bill.payerName || "ผู้จ่าย";
+
       bill.participants?.forEach((participant) => {
         if (participant.userId === bill.payerId) return;
         const share = Number(participant.share || 0);
         if (share <= 0) return;
 
-        rows.push({
-          billId: bill.id,
-          payerName: payer?.name || bill.payerName || "ผู้จ่าย",
+        const key = `${participant.name}->${payerName}`;
+        const current = map.get(key) || {
           debtorName: participant.name,
-          amount: share,
-        });
+          payerName,
+          amount: 0,
+        };
+        current.amount += share;
+        map.set(key, current);
       });
     });
 
-    return rows;
-  }, [bills, members]);
-
-  const summaryByPerson = useMemo(() => {
-    const map = new Map();
-    billSummary.forEach((row) => {
-      const key = `${row.debtorName}->${row.payerName}`;
-      const current = map.get(key) || {
-        debtorName: row.debtorName,
-        payerName: row.payerName,
-        amount: 0,
-      };
-      current.amount += row.amount;
-      map.set(key, current);
-    });
     return Array.from(map.values());
-  }, [billSummary]);
+  }, [bills, members]);
 
   const updateForm = (field, value) => {
     setForm((current) => ({ ...current, [field]: value }));
@@ -271,7 +279,9 @@ function BillManager() {
       }
 
       resetForm();
-      setBills(await getBills(id));
+      const nextBills = await getBills(id);
+      setBills(nextBills);
+      setActiveBillId(editingId || nextBills[0]?.id || null);
     } catch (err) {
       console.error(err);
       Swal.fire("เกิดข้อผิดพลาด", "ไม่สามารถบันทึกบิลได้", "error");
@@ -280,6 +290,7 @@ function BillManager() {
 
   const handleEdit = (bill) => {
     setEditingId(bill.id);
+    setActiveBillId(bill.id);
     setForm({
       title: bill.title || "",
       amount: bill.amount || "",
@@ -302,7 +313,9 @@ function BillManager() {
     if (!result.isConfirmed) return;
 
     await deleteBill(id, billId);
-    setBills(bills.filter((bill) => bill.id !== billId));
+    const nextBills = bills.filter((bill) => bill.id !== billId);
+    setBills(nextBills);
+    if (activeBillId === billId) setActiveBillId(nextBills[0]?.id || null);
     Swal.fire("สำเร็จ", "ลบบิลแล้ว", "success");
   };
 
@@ -339,13 +352,8 @@ function BillManager() {
     );
   }
 
-  if (loading) {
-    return <div className="soft-card empty-state">กำลังโหลดค่าใช้จ่าย...</div>;
-  }
-
-  if (!group) {
-    return <div className="soft-card empty-state">ไม่พบกลุ่มนี้</div>;
-  }
+  if (loading) return <div className="soft-card empty-state">กำลังโหลดค่าใช้จ่าย...</div>;
+  if (!group) return <div className="soft-card empty-state">ไม่พบกลุ่มนี้</div>;
 
   return (
     <>
@@ -520,24 +528,38 @@ function BillManager() {
               <p>กดเพิ่มบิลเพื่อเริ่มบันทึกค่าใช้จ่ายของทริปนี้</p>
             </div>
           ) : (
-            <div className="bill-grid">
-              {bills.map((bill) => (
-                <article key={bill.id} className="bill-card">
+            <>
+              <div className="bill-switcher" aria-label="เลือกบิล">
+                {bills.map((bill) => (
+                  <button
+                    key={bill.id}
+                    type="button"
+                    className={`bill-tab ${activeBill?.id === bill.id ? "active" : ""}`}
+                    onClick={() => setActiveBillId(bill.id)}
+                  >
+                    <span>{bill.title}</span>
+                    <small>{money(bill.amount)} บาท</small>
+                  </button>
+                ))}
+              </div>
+
+              {activeBill && (
+                <article className="bill-card">
                   <div className="bill-card-header">
                     <div>
-                      <h3>{bill.title}</h3>
-                      <p>ออกโดย {bill.payerName || "ผู้จ่าย"}</p>
+                      <h3>{activeBill.title}</h3>
+                      <p>ออกโดย {activeBill.payerName || "ผู้จ่าย"}</p>
                     </div>
-                    <strong>{money(bill.amount)} บาท</strong>
+                    <strong>{money(activeBill.amount)} บาท</strong>
                   </div>
 
                   <div className="bill-participants">
                     <div className="bill-section-title">
                       <span>รายละเอียดสมาชิกในบิล</span>
-                      <small>{bill.participants?.length || 0} คน</small>
+                      <small>{activeBill.participants?.length || 0} คน</small>
                     </div>
 
-                    {(bill.participants || []).map((participant) => (
+                    {(activeBill.participants || []).map((participant) => (
                       <div key={participant.userId} className="bill-participant-row">
                         <span className="d-flex align-items-center gap-2">
                           <img
@@ -553,16 +575,16 @@ function BillManager() {
                   </div>
 
                   <div className="d-flex gap-2 mt-3">
-                    <button className="btn btn-sm btn-outline-primary" onClick={() => handleEdit(bill)}>
+                    <button className="btn btn-sm btn-outline-primary" onClick={() => handleEdit(activeBill)}>
                       แก้ไข
                     </button>
-                    <button className="btn btn-sm btn-outline-danger" onClick={() => handleDelete(bill.id)}>
+                    <button className="btn btn-sm btn-outline-danger" onClick={() => handleDelete(activeBill.id)}>
                       ลบ
                     </button>
                   </div>
                 </article>
-              ))}
-            </div>
+              )}
+            </>
           )}
         </div>
 
