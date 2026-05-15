@@ -5,7 +5,9 @@ import Swal from "sweetalert2";
 import { db } from "../firebase";
 import { createBill, deleteBill, getBills, updateBill } from "../services/billService";
 import { isFinance } from "../services/financeService";
+import { resizeImageToDataURL } from "../utils/image";
 import { useAuth } from "../AuthContext";
+import { useImageViewer } from "../ImageViewerContext";
 import BackHomeButtons from "./BackHomeButtons";
 
 const emptyBill = {
@@ -31,9 +33,30 @@ function paymentStatus(share, paid) {
   return { id: "over", label: `เกิน ${money(p - s)}`, remaining: s - p };
 }
 
+async function pickAndCompressSlip() {
+  return new Promise((resolve) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return resolve(null);
+      try {
+        const url = await resizeImageToDataURL(file, { maxSize: 900, quality: 0.76 });
+        resolve(url);
+      } catch (err) {
+        console.error(err);
+        resolve(null);
+      }
+    };
+    input.click();
+  });
+}
+
 function BillManager() {
   const { id } = useParams();
   const { user } = useAuth();
+  const { openImage } = useImageViewer();
   const [groups, setGroups] = useState([]);
   const [group, setGroup] = useState(null);
   const [bills, setBills] = useState([]);
@@ -43,6 +66,7 @@ function BillManager() {
   const [showForm, setShowForm] = useState(false);
   const [activeBillId, setActiveBillId] = useState(null);
   const [paidDrafts, setPaidDrafts] = useState({}); // billId -> { userId: paidValue }
+  const [slipDrafts, setSlipDrafts] = useState({}); // billId -> { userId: slipDataUrl }
   const [savingPayments, setSavingPayments] = useState(false);
 
   const isGroupRoute = Boolean(id);
@@ -212,6 +236,7 @@ function BillManager() {
           picture: m.picture || "",
           share: existing?.share || 0,
           paid: existing?.paid || 0,
+          slipDataUrl: existing?.slipDataUrl || "",
         };
       }),
     }));
@@ -362,6 +387,32 @@ function BillManager() {
     }));
   };
 
+  const slipFor = (bill, userId) => {
+    const drafts = slipDrafts[bill.id];
+    if (drafts && Object.prototype.hasOwnProperty.call(drafts, userId)) {
+      return drafts[userId] || "";
+    }
+    const p = bill.participants?.find((x) => x.userId === userId);
+    return p?.slipDataUrl || "";
+  };
+
+  const setSlipDraft = (billId, userId, slipDataUrl) => {
+    setSlipDrafts((prev) => ({
+      ...prev,
+      [billId]: { ...(prev[billId] || {}), [userId]: slipDataUrl },
+    }));
+  };
+
+  const attachSlip = async (bill, p) => {
+    const slipDataUrl = await pickAndCompressSlip();
+    if (!slipDataUrl) return;
+    setSlipDraft(bill.id, p.userId, slipDataUrl);
+  };
+
+  const removeSlip = (bill, p) => {
+    setSlipDraft(bill.id, p.userId, "");
+  };
+
   const markPaidFull = (bill, p) => {
     setDraft(bill.id, p.userId, Number(p.share || 0));
   };
@@ -372,20 +423,29 @@ function BillManager() {
 
   const hasUnsavedPayments = (bill) => {
     const drafts = paidDrafts[bill.id];
-    if (!drafts) return false;
-    return Object.entries(drafts).some(([uid, v]) => {
+    const slipDraft = slipDrafts[bill.id];
+    const hasPaidChange = drafts && Object.entries(drafts).some(([uid, v]) => {
       const p = bill.participants?.find((x) => x.userId === uid);
       return Number(p?.paid || 0) !== Number(v || 0);
     });
+    const hasSlipChange = slipDraft && Object.entries(slipDraft).some(([uid, v]) => {
+      const p = bill.participants?.find((x) => x.userId === uid);
+      return (p?.slipDataUrl || "") !== (v || "");
+    });
+    return Boolean(hasPaidChange || hasSlipChange);
   };
 
   const savePayments = async (bill) => {
     const drafts = paidDrafts[bill.id] || {};
+    const slipDraft = slipDrafts[bill.id] || {};
     const updatedParticipants = (bill.participants || []).map((p) => ({
       ...p,
       paid: Object.prototype.hasOwnProperty.call(drafts, p.userId)
         ? Number(drafts[p.userId]) || 0
         : Number(p.paid) || 0,
+      slipDataUrl: Object.prototype.hasOwnProperty.call(slipDraft, p.userId)
+        ? slipDraft[p.userId] || ""
+        : p.slipDataUrl || "",
     }));
     try {
       setSavingPayments(true);
@@ -404,6 +464,11 @@ function BillManager() {
         delete next[bill.id];
         return next;
       });
+      setSlipDrafts((prev) => {
+        const next = { ...prev };
+        delete next[bill.id];
+        return next;
+      });
       Swal.fire({
         toast: true, position: "top", icon: "success",
         title: "บันทึกการชำระแล้ว", showConfirmButton: false, timer: 1400,
@@ -418,6 +483,11 @@ function BillManager() {
 
   const discardPayments = (billId) => {
     setPaidDrafts((prev) => {
+      const next = { ...prev };
+      delete next[billId];
+      return next;
+    });
+    setSlipDrafts((prev) => {
       const next = { ...prev };
       delete next[billId];
       return next;
@@ -727,6 +797,7 @@ function BillManager() {
                       const draftPaid = draftFor(activeBill, p.userId);
                       const status = paymentStatus(p.share, draftPaid);
                       const isPayer = p.userId === activeBill.payerId;
+                      const slipDataUrl = slipFor(activeBill, p.userId);
                       return (
                         <div
                           key={p.userId}
@@ -749,38 +820,79 @@ function BillManager() {
                             </span>
                           </div>
 
-                          {!isPayer && canManage && (
-                            <div className="pay-row-input">
-                              <div className="pay-input-group">
-                                <span className="pay-input-prefix">จ่ายแล้ว</span>
-                                <input
-                                  type="number"
-                                  min="0"
-                                  step="0.01"
-                                  className="form-control"
-                                  value={draftPaid}
-                                  onChange={(e) =>
-                                    setDraft(activeBill.id, p.userId, e.target.value)
-                                  }
-                                />
-                              </div>
-                              <div className="pay-quick">
-                                <button
-                                  type="button"
-                                  className="btn btn-sm btn-outline-success"
-                                  onClick={() => markPaidFull(activeBill, p)}
-                                  title="ตั้งเป็นจ่ายครบ"
-                                >
-                                  ครบ
-                                </button>
-                                <button
-                                  type="button"
-                                  className="btn btn-sm btn-light border"
-                                  onClick={() => markPaidZero(activeBill, p)}
-                                  title="ล้างยอดที่จ่าย"
-                                >
-                                  0
-                                </button>
+                          {!isPayer && (canManage || slipDataUrl) && (
+                            <div className="pay-row-controls">
+                              {canManage && (
+                                <div className="pay-row-input">
+                                  <div className="pay-input-group">
+                                    <span className="pay-input-prefix">จ่ายแล้ว</span>
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      step="0.01"
+                                      className="form-control"
+                                      value={draftPaid}
+                                      onChange={(e) =>
+                                        setDraft(activeBill.id, p.userId, e.target.value)
+                                      }
+                                    />
+                                  </div>
+                                  <div className="pay-quick">
+                                    <button
+                                      type="button"
+                                      className="btn btn-sm btn-outline-success"
+                                      onClick={() => markPaidFull(activeBill, p)}
+                                      title="ตั้งเป็นจ่ายครบ"
+                                    >
+                                      ครบ
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="btn btn-sm btn-light border"
+                                      onClick={() => markPaidZero(activeBill, p)}
+                                      title="ล้างยอดที่จ่าย"
+                                    >
+                                      0
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+
+                              <div className="pay-slip-row">
+                                {slipDataUrl ? (
+                                  <button
+                                    type="button"
+                                    className="pay-slip-preview"
+                                    onClick={() => openImage(slipDataUrl, `bill-${activeBill.id}-${p.userId}.jpg`)}
+                                    title="ดูสลิป"
+                                  >
+                                    <img src={slipDataUrl} alt="สลิปการชำระ" />
+                                    <span>ดูสลิป</span>
+                                  </button>
+                                ) : (
+                                  <span className="pay-slip-empty">ยังไม่มีสลิป</span>
+                                )}
+
+                                {canManage && (
+                                  <div className="pay-slip-actions">
+                                    <button
+                                      type="button"
+                                      className="btn btn-sm btn-light border"
+                                      onClick={() => attachSlip(activeBill, p)}
+                                    >
+                                      {slipDataUrl ? "เปลี่ยนสลิป" : "แนบสลิป"}
+                                    </button>
+                                    {slipDataUrl && (
+                                      <button
+                                        type="button"
+                                        className="btn btn-sm btn-outline-danger"
+                                        onClick={() => removeSlip(activeBill, p)}
+                                      >
+                                        ลบสลิป
+                                      </button>
+                                    )}
+                                  </div>
+                                )}
                               </div>
                             </div>
                           )}

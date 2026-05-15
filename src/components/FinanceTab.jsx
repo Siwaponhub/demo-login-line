@@ -9,6 +9,7 @@ import { isGeminiEnabled, verifySlip } from "../services/geminiService";
 import { resizeImageToDataURL } from "../utils/image";
 import { getBills } from "../services/billService";
 import { useAuth } from "../AuthContext";
+import { useImageViewer } from "../ImageViewerContext";
 
 const money = (n) =>
   Number(n || 0).toLocaleString("th-TH", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
@@ -43,12 +44,12 @@ function StatusPill({ status }) {
 
 function FinanceTab({ group, gid }) {
   const { user } = useAuth();
+  const { openImage } = useImageViewer();
   const [bills, setBills] = useState([]);
   const [payments, setPayments] = useState([]);
   const [payouts, setPayouts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState(null);
-  const [slipViewer, setSlipViewer] = useState(null); // url ของสลิปที่กำลังดู
   const fileSubmittingRef = useRef(false);
 
   const finance = isFinance(group, user?.userId);
@@ -190,21 +191,42 @@ function FinanceTab({ group, gid }) {
     } finally { setBusyId(null); }
   };
 
-  // ====== Finance: โอนคืนสมาชิก (ใช้ยอดคงเหลือ) ======
+  // ====== Finance: โอนคืนสมาชิก (ระบุยอดตอนแนบสลิปได้) ======
   const handleSendPayout = async (row) => {
     if (fileSubmittingRef.current) return;
     const remaining = getPayoutRemaining(row, payouts);
     if (remaining <= 0) return;
+
+    const { value } = await Swal.fire({
+      title: "ยอดที่โอนคืน",
+      html: `<small class="text-muted">ยอดคงเหลือที่ต้องโอนคืน: <strong>${money(remaining)}</strong></small>`,
+      input: "number",
+      inputValue: remaining,
+      inputAttributes: { min: 0.01, max: remaining, step: 0.01 },
+      showCancelButton: true,
+      confirmButtonText: "ต่อไปแนบสลิป",
+      cancelButtonText: "ยกเลิก",
+      confirmButtonColor: "#06c755",
+      inputValidator: (v) => {
+        const amount = Number(v);
+        if (!amount || amount <= 0) return "กรอกยอดที่โอนคืน";
+        if (amount > remaining + 0.01) return `ยอดต้องไม่เกิน ${money(remaining)}`;
+        return undefined;
+      },
+    });
+    if (value === undefined) return;
+
+    const payoutAmount = Math.round(Number(value) * 100) / 100;
     fileSubmittingRef.current = true;
     try {
       const slip = await pickAndCompressSlip();
       if (!slip) return;
       await sendPayout(gid, {
         toUserId: row.userId, toUserName: row.name,
-        amount: remaining, slipDataUrl: slip,
+        amount: payoutAmount, slipDataUrl: slip,
         createdBy: user.userId, createdByName: user.name,
       });
-      toast("success", "ส่งสลิปคืนแล้ว");
+      toast("success", `ส่งสลิปคืนแล้ว (${money(payoutAmount)})`);
       reload();
     } finally { fileSubmittingRef.current = false; }
   };
@@ -412,7 +434,7 @@ function FinanceTab({ group, gid }) {
                     src={p.slipDataUrl}
                     alt="slip"
                     className="slip-thumb"
-                    onClick={() => setSlipViewer(p.slipDataUrl)}
+                    onClick={() => openImage(p.slipDataUrl, `slip-${p.id}.jpg`)}
                     role="button"
                     tabIndex={0}
                   />
@@ -503,7 +525,7 @@ function FinanceTab({ group, gid }) {
                     {p.slipDataUrl && (
                       <button
                         className="btn btn-sm btn-light border"
-                        onClick={() => setSlipViewer(p.slipDataUrl)}
+                        onClick={() => openImage(p.slipDataUrl, `slip-${p.id}.jpg`)}
                         title="ดูสลิป"
                       >
                         ดูสลิป
@@ -528,7 +550,7 @@ function FinanceTab({ group, gid }) {
                   {p.slipDataUrl && (
                     <button
                       className="btn btn-sm btn-light border"
-                      onClick={() => setSlipViewer(p.slipDataUrl)}
+                      onClick={() => openImage(p.slipDataUrl, `slip-${p.id}.jpg`)}
                       title="ดูสลิป"
                     >
                       ดูสลิป
@@ -544,30 +566,6 @@ function FinanceTab({ group, gid }) {
         )}
       </section>
 
-      {/* ===== Slip Viewer Modal ===== */}
-      {slipViewer && (
-        <div
-          className="slip-viewer"
-          onClick={() => setSlipViewer(null)}
-          role="dialog"
-          aria-modal="true"
-        >
-          <button
-            type="button"
-            className="slip-viewer-close"
-            onClick={() => setSlipViewer(null)}
-            aria-label="ปิด"
-          >
-            ×
-          </button>
-          <img
-            src={slipViewer}
-            alt="สลิป"
-            className="slip-viewer-img"
-            onClick={(e) => e.stopPropagation()}
-          />
-        </div>
-      )}
     </div>
   );
 }

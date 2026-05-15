@@ -174,10 +174,16 @@ export function deriveStatus(memberRow, payments, payouts) {
     return STATUS.PENDING_PAYMENT;
   }
   // net > 0 → ต้องรับคืน
-  const confirmed = myPouts.find((p) => p.status === "confirmed");
-  if (confirmed) return STATUS.COMPLETED;
-  const sent = myPouts.find((p) => p.status === "sent");
-  if (sent) return STATUS.AWAITING_CONFIRMATION;
+  const totalPayout = myPouts.reduce((s, p) => s + Number(p.amount || 0), 0);
+  const sentTotal = myPouts
+    .filter((p) => p.status === "sent")
+    .reduce((s, p) => s + Number(p.amount || 0), 0);
+  if (totalPayout >= net - 0.01) {
+    return sentTotal > 0 ? STATUS.AWAITING_CONFIRMATION : STATUS.COMPLETED;
+  }
+  if (totalPayout > 0.01) {
+    return sentTotal > 0 ? STATUS.AWAITING_CONFIRMATION : STATUS.PENDING_PAYOUT;
+  }
   return STATUS.PENDING_PAYOUT;
 }
 
