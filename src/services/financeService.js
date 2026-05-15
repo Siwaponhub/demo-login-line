@@ -1,0 +1,157 @@
+// ระบบการเงินกลาง (Centralized Netting Engine + Payment Workflow)
+// ใช้ pure JS สำหรับคำนวณ + Firestore สำหรับเก็บ records
+import { db } from "../firebase";
+import {
+  addDoc, collection, deleteDoc, doc, getDocs, orderBy, query,
+  serverTimestamp, updateDoc,
+} from "firebase/firestore";
+
+const paymentsRef = (gid) => collection(db, "groups", gid, "payments");
+const payoutsRef = (gid) => collection(db, "groups", gid, "payouts");
+
+// ====== NETTING CALCULATION (FR-1) ======
+// Input: bills[] + members[]
+// Output: per-member { userId, name, paid, share, net, role }
+//   net > 0  → ต้องได้รับคืน (Pay-out)
+//   net < 0  → ต้องจ่ายเพิ่ม (Pay-in)
+//   net == 0 → สมดุล
+export function computeNetting(bills, members) {
+  const map = new Map();
+  members.forEach((m) => {
+    map.set(m.userId, {
+      userId: m.userId,
+      name: m.name,
+      picture: m.picture || "",
+      paid: 0,    // ยอดที่คนนี้สำรองจ่ายไป (เป็น payer ของบิล)
+      share: 0,   // ยอดส่วนที่คนนี้ต้องรับผิดชอบ
+      net: 0,
+    });
+  });
+
+  bills.forEach((b) => {
+    const amount = Number(b.amount || 0);
+    const payer = map.get(b.payerId);
+    if (payer) payer.paid += amount;
+    (b.participants || []).forEach((p) => {
+      const row = map.get(p.userId);
+      if (row) row.share += Number(p.share || 0);
+    });
+  });
+
+  // round 2 decimal + compute net
+  const rows = Array.from(map.values()).map((r) => {
+    const paid = Math.round(r.paid * 100) / 100;
+    const share = Math.round(r.share * 100) / 100;
+    return { ...r, paid, share, net: Math.round((paid - share) * 100) / 100 };
+  });
+
+  // NFR-2.2: residual จากการ rounding กระจายเข้ารายการแรกให้ผลรวม = 0
+  const residual = Math.round(rows.reduce((s, r) => s + r.net, 0) * 100) / 100;
+  if (rows.length && Math.abs(residual) >= 0.01) {
+    rows[0].net = Math.round((rows[0].net - residual) * 100) / 100;
+  }
+  return rows;
+}
+
+// ====== PAYMENT RECORDS (FR-2) ======
+// member submits payment with slip
+export async function submitPayment(gid, payload) {
+  return addDoc(paymentsRef(gid), {
+    status: "pending",  // pending → verified | rejected
+    createdAt: serverTimestamp(),
+    ...payload,
+  });
+}
+
+export async function getPayments(gid) {
+  const snap = await getDocs(query(paymentsRef(gid), orderBy("createdAt", "desc")));
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+
+// finance approves/rejects (FR-3)
+export async function reviewPayment(gid, paymentId, decision, reviewer) {
+  return updateDoc(doc(db, "groups", gid, "payments", paymentId), {
+    status: decision.status,         // "verified" | "rejected"
+    rejectReason: decision.reason || "",
+    reviewedBy: reviewer.userId,
+    reviewedByName: reviewer.name,
+    reviewedAt: serverTimestamp(),
+  });
+}
+
+export async function attachGeminiCheck(gid, paymentId, check) {
+  return updateDoc(doc(db, "groups", gid, "payments", paymentId), {
+    geminiCheck: { ...check, checkedAt: new Date().toISOString() },
+  });
+}
+
+export async function deletePayment(gid, paymentId) {
+  return deleteDoc(doc(db, "groups", gid, "payments", paymentId));
+}
+
+// ====== PAYOUT RECORDS (FR-3.3, FR-4) ======
+export async function sendPayout(gid, payload) {
+  return addDoc(payoutsRef(gid), {
+    status: "sent",  // sent → confirmed
+    createdAt: serverTimestamp(),
+    ...payload,
+  });
+}
+
+export async function getPayouts(gid) {
+  const snap = await getDocs(query(payoutsRef(gid), orderBy("createdAt", "desc")));
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+
+export async function confirmPayout(gid, payoutId) {
+  return updateDoc(doc(db, "groups", gid, "payouts", payoutId), {
+    status: "confirmed",
+    confirmedAt: serverTimestamp(),
+  });
+}
+
+export async function deletePayout(gid, payoutId) {
+  return deleteDoc(doc(db, "groups", gid, "payouts", payoutId));
+}
+
+// ====== STATUS DERIVATION (FR-5) ======
+// แปลง netting + payments + payouts → สถานะของแต่ละสมาชิก (1 ใน 7)
+export const STATUS = {
+  PENDING_PAYMENT: { id: "pending_payment", label: "รอชำระ", tone: "unpaid" },
+  PENDING_VERIFICATION: { id: "pending_verification", label: "รอตรวจสลิป", tone: "partial" },
+  PAID: { id: "paid", label: "ชำระแล้ว", tone: "paid" },
+  PENDING_PAYOUT: { id: "pending_payout", label: "รอโอนคืน", tone: "unpaid" },
+  PAYOUT_SENT: { id: "payout_sent", label: "โอนคืนแล้ว", tone: "over" },
+  AWAITING_CONFIRMATION: { id: "awaiting_confirmation", label: "รอยืนยันรับเงิน", tone: "partial" },
+  COMPLETED: { id: "completed", label: "ปิดรายการ", tone: "paid" },
+};
+
+export function deriveStatus(memberRow, payments, payouts) {
+  const { userId, net } = memberRow;
+  const myPays = payments.filter((p) => p.userId === userId);
+  const myPouts = payouts.filter((p) => p.toUserId === userId);
+
+  if (Math.abs(net) < 0.01) return STATUS.COMPLETED;
+
+  if (net < 0) {
+    // ต้องจ่ายเพิ่ม
+    const verified = myPays.find((p) => p.status === "verified");
+    if (verified) return STATUS.PAID;
+    const pending = myPays.find((p) => p.status === "pending");
+    if (pending) return STATUS.PENDING_VERIFICATION;
+    return STATUS.PENDING_PAYMENT;
+  }
+  // net > 0 → ต้องรับคืน
+  const confirmed = myPouts.find((p) => p.status === "confirmed");
+  if (confirmed) return STATUS.COMPLETED;
+  const sent = myPouts.find((p) => p.status === "sent");
+  if (sent) return STATUS.AWAITING_CONFIRMATION;
+  return STATUS.PENDING_PAYOUT;
+}
+
+// เจ้าของกลุ่ม + คนที่มี role "finance" → สามารถจัดการเรื่องเงินทั้งหมดได้
+// (อนุมัติ/ปฏิเสธ สลิป, โอนคืน, ลบ records, CRUD บิล)
+export const isFinance = (group, userId) =>
+  !!userId &&
+  (group?.ownerId === userId ||
+    (Array.isArray(group?.financeUserIds) && group.financeUserIds.includes(userId)));

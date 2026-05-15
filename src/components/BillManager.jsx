@@ -4,6 +4,7 @@ import { collection, doc, getDoc, getDocs } from "firebase/firestore";
 import Swal from "sweetalert2";
 import { db } from "../firebase";
 import { createBill, deleteBill, getBills, updateBill } from "../services/billService";
+import { isFinance } from "../services/financeService";
 import { useAuth } from "../AuthContext";
 import BackHomeButtons from "./BackHomeButtons";
 
@@ -460,6 +461,9 @@ function BillManager() {
   if (loading) return <div className="soft-card empty-state">กำลังโหลดค่าใช้จ่าย...</div>;
   if (!group) return <div className="soft-card empty-state">ไม่พบกลุ่มนี้</div>;
 
+  // เฉพาะเจ้าของกลุ่ม + ฝ่ายการเงิน → จัดการบิล/payment ได้
+  const canManage = isFinance(group, user?.userId);
+
   // active bill payment summary
   const activeBillSummary = (() => {
     if (!activeBill) return null;
@@ -482,11 +486,18 @@ function BillManager() {
       <section className="page-header page-header-tight">
         <div>
           <h1 className="page-title">ค่าใช้จ่าย</h1>
-          <p className="page-subtitle">{group.name}</p>
+          <p className="page-subtitle">
+            {group.name}
+            {!canManage && (
+              <span className="badge text-bg-light ms-2">โหมดดูอย่างเดียว</span>
+            )}
+          </p>
         </div>
-        <button className="btn btn-success px-4" onClick={openCreateForm}>
-          + เพิ่มบิล
-        </button>
+        {canManage && (
+          <button className="btn btn-success px-4" onClick={openCreateForm}>
+            + เพิ่มบิล
+          </button>
+        )}
       </section>
 
       {/* Compact stat strip — ทุกอย่างในแถวเดียว ไม่มีหน่วย */}
@@ -509,7 +520,7 @@ function BillManager() {
         </div>
       </section>
 
-      {showForm && (
+      {showForm && canManage && (
         <form className="soft-card p-3 p-md-4 mt-3" onSubmit={handleSubmit}>
           <div className="d-flex justify-content-between align-items-start gap-3 mb-3">
             <div className="min-w-0">
@@ -729,7 +740,7 @@ function BillManager() {
                             </span>
                           </div>
 
-                          {!isPayer && (
+                          {!isPayer && canManage && (
                             <div className="pay-row-input">
                               <div className="pay-input-group">
                                 <span className="pay-input-prefix">จ่ายแล้ว</span>
@@ -785,7 +796,7 @@ function BillManager() {
                               : "สมดุล"}
                         </span>
                       </div>
-                      {hasUnsavedPayments(activeBill) && (
+                      {canManage && hasUnsavedPayments(activeBill) && (
                         <div className="pay-actions">
                           <button
                             type="button"
@@ -808,14 +819,16 @@ function BillManager() {
                     </div>
                   )}
 
-                  <div className="d-flex gap-2 mt-3">
-                    <button className="btn btn-sm btn-outline-primary" onClick={() => handleEdit(activeBill)}>
-                      แก้ไข
-                    </button>
-                    <button className="btn btn-sm btn-outline-danger" onClick={() => handleDelete(activeBill.id)}>
-                      ลบ
-                    </button>
-                  </div>
+                  {canManage && (
+                    <div className="d-flex gap-2 mt-3">
+                      <button className="btn btn-sm btn-outline-primary" onClick={() => handleEdit(activeBill)}>
+                        แก้ไข
+                      </button>
+                      <button className="btn btn-sm btn-outline-danger" onClick={() => handleDelete(activeBill.id)}>
+                        ลบ
+                      </button>
+                    </div>
+                  )}
                 </article>
               )}
             </>
