@@ -2,8 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Swal from "sweetalert2";
 import {
   STATUS, attachGeminiCheck, computeNetting, confirmPayout, deletePayment,
-  deletePayout, deriveStatus, getPayments, getPayouts, isFinance,
-  reviewPayment, sendPayout, submitPayment,
+  deletePayout, deriveStatus, getOutstanding, getPayments, getPayouts,
+  getPayoutRemaining, isFinance, reviewPayment, sendPayout, submitPayment,
 } from "../services/financeService";
 import { isGeminiEnabled, verifySlip } from "../services/geminiService";
 import { resizeImageToDataURL } from "../utils/image";
@@ -48,6 +48,7 @@ function FinanceTab({ group, gid }) {
   const [payouts, setPayouts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState(null);
+  const [slipViewer, setSlipViewer] = useState(null); // url ของสลิปที่กำลังดู
   const fileSubmittingRef = useRef(false);
 
   const finance = isFinance(group, user?.userId);
@@ -88,9 +89,11 @@ function FinanceTab({ group, gid }) {
     (p) => p.toUserId === user?.userId && p.status === "sent"
   );
 
-  // ====== Member: แนบสลิปจ่ายเงิน ======
+  // ====== Member: แนบสลิปจ่ายเงิน (ใช้ยอดคงเหลือ) ======
   const handlePayIn = async () => {
     if (!me || me.net >= 0 || fileSubmittingRef.current) return;
+    const outstanding = getOutstanding(me, payments);
+    if (outstanding <= 0) return;
     fileSubmittingRef.current = true;
     try {
       const slip = await pickAndCompressSlip();
@@ -98,7 +101,7 @@ function FinanceTab({ group, gid }) {
       await submitPayment(gid, {
         userId: user.userId,
         userName: user.name,
-        amount: Math.abs(me.net),
+        amount: outstanding,
         slipDataUrl: slip,
       });
       toast("success", "ส่งสลิปแล้ว รอตรวจสอบ");
@@ -138,12 +141,38 @@ function FinanceTab({ group, gid }) {
     } finally { setBusyId(null); }
   };
 
-  // ====== Finance: อนุมัติ/ปฏิเสธ payment ======
+  // ====== Finance: อนุมัติ/ปฏิเสธ payment (กรอกยอดจริง) ======
   const handleApprove = async (payment) => {
+    const suggested = payment.geminiCheck?.foundAmount ?? payment.amount;
+    const { value } = await Swal.fire({
+      title: "ยอดที่ได้รับจริง",
+      html: `<small class="text-muted">ยอดที่สมาชิกอ้าง: <strong>${money(payment.amount)}</strong></small>`,
+      input: "number",
+      inputValue: suggested,
+      inputAttributes: { min: 0, step: 0.01 },
+      showCancelButton: true,
+      confirmButtonText: "อนุมัติ",
+      confirmButtonColor: "#06c755",
+      inputValidator: (v) =>
+        !v || Number(v) <= 0 ? "กรอกยอดที่ได้รับมา" : undefined,
+    });
+    if (value === undefined) return;
+
     setBusyId(payment.id);
     try {
-      await reviewPayment(gid, payment.id, { status: "verified" }, user);
-      toast("success", "อนุมัติแล้ว");
+      await reviewPayment(
+        gid,
+        payment.id,
+        { status: "verified", actualAmount: Number(value) },
+        user
+      );
+      const diff = Number(value) - Number(payment.amount);
+      const msg = Math.abs(diff) < 0.01
+        ? "อนุมัติเต็มจำนวนแล้ว"
+        : diff > 0
+          ? `อนุมัติ (เกิน ${money(diff)})`
+          : `อนุมัติ (ขาด ${money(-diff)})`;
+      toast("success", msg);
       reload();
     } finally { setBusyId(null); }
   };
@@ -161,16 +190,18 @@ function FinanceTab({ group, gid }) {
     } finally { setBusyId(null); }
   };
 
-  // ====== Finance: โอนคืนสมาชิก ======
+  // ====== Finance: โอนคืนสมาชิก (ใช้ยอดคงเหลือ) ======
   const handleSendPayout = async (row) => {
     if (fileSubmittingRef.current) return;
+    const remaining = getPayoutRemaining(row, payouts);
+    if (remaining <= 0) return;
     fileSubmittingRef.current = true;
     try {
       const slip = await pickAndCompressSlip();
       if (!slip) return;
       await sendPayout(gid, {
         toUserId: row.userId, toUserName: row.name,
-        amount: row.net, slipDataUrl: slip,
+        amount: remaining, slipDataUrl: slip,
         createdBy: user.userId, createdByName: user.name,
       });
       toast("success", "ส่งสลิปคืนแล้ว");
@@ -255,76 +286,114 @@ function FinanceTab({ group, gid }) {
         </div>
       </section>
 
-      {/* ===== Member Dashboard (FR-1.3) ===== */}
-      {me && (
-        <section className="soft-card p-3 p-md-4 me-dashboard">
-          <div className="d-flex justify-content-between align-items-start gap-2 mb-2">
-            <h2 className="h5 fw-bold mb-0">สรุปของคุณ</h2>
-            <StatusPill status={me.status} />
-          </div>
-          <div className="me-stats">
-            <div><small>สำรองจ่ายไป</small><strong>{money(me.paid)}</strong></div>
-            <div><small>ส่วนที่ต้องหาร</small><strong>{money(me.share)}</strong></div>
-            <div>
-              <small>{me.net >= 0 ? "รอรับคืน" : "ต้องจ่ายเพิ่ม"}</small>
-              <strong className={me.net >= 0 ? "text-success" : "text-danger"}>
-                {money(Math.abs(me.net))}
-              </strong>
+      {/* ===== Member Dashboard (FR-1.3) — เห็นเฉพาะของตัวเอง ===== */}
+      {me && (() => {
+        const outstanding = getOutstanding(me, payments);
+        const payoutRem = getPayoutRemaining(me, payouts);
+        return (
+          <section className="soft-card p-3 p-md-4 me-dashboard">
+            <div className="d-flex justify-content-between align-items-start gap-2 mb-2">
+              <h2 className="h5 fw-bold mb-0">สรุปของคุณ</h2>
+              <StatusPill status={me.status} />
             </div>
-          </div>
+            <div className="me-stats">
+              <div><small>สำรองจ่ายไป</small><strong>{money(me.paid)}</strong></div>
+              <div><small>ส่วนที่ต้องหาร</small><strong>{money(me.share)}</strong></div>
+              <div>
+                <small>
+                  {me.net >= 0 ? "รอรับคืน (คงเหลือ)" : "ค้างจ่าย (คงเหลือ)"}
+                </small>
+                <strong className={me.net >= 0 ? "text-success" : "text-danger"}>
+                  {money(me.net >= 0 ? payoutRem : outstanding)}
+                </strong>
+              </div>
+            </div>
 
-          {me.net < 0 && !myPendingPayment && (
-            <button className="btn btn-success w-100 mt-3" onClick={handlePayIn}>
-              ชำระเงิน + แนบสลิป
-            </button>
-          )}
-          {myPendingPayment && (
-            <p className="text-muted mt-3 mb-0 small">
-              ส่งสลิปแล้ว ({money(myPendingPayment.amount)}) — รอฝ่ายการเงินตรวจ
-            </p>
-          )}
-          {myAwaitingPayout && (
-            <button
-              className="btn btn-success w-100 mt-3"
-              onClick={() => handleConfirmReceipt(myAwaitingPayout.id)}
-              disabled={busyId === myAwaitingPayout.id}
-            >
-              ✓ ได้รับเงินแล้ว ({money(myAwaitingPayout.amount)})
-            </button>
-          )}
+            {me.net < 0 && outstanding > 0 && !myPendingPayment && (
+              <button className="btn btn-success w-100 mt-3" onClick={handlePayIn}>
+                ชำระเงิน + แนบสลิป ({money(outstanding)})
+              </button>
+            )}
+            {myPendingPayment && (
+              <p className="text-muted mt-3 mb-0 small">
+                ส่งสลิปแล้ว ({money(myPendingPayment.amount)}) — รอฝ่ายการเงินตรวจ
+              </p>
+            )}
+            {myAwaitingPayout && (
+              <button
+                className="btn btn-success w-100 mt-3"
+                onClick={() => handleConfirmReceipt(myAwaitingPayout.id)}
+                disabled={busyId === myAwaitingPayout.id}
+              >
+                ✓ ได้รับเงินแล้ว ({money(myAwaitingPayout.amount)})
+              </button>
+            )}
+          </section>
+        );
+      })()}
+
+      {/* ===== Netting table — เฉพาะ Finance / Owner เห็น ===== */}
+      {finance && (
+        <section className="soft-card p-3 p-md-4">
+          <h2 className="h5 fw-bold mb-3">ยอดสุทธิทั้งกลุ่ม (Netting)</h2>
+          <div className="netting-list">
+            {memberRows.map((r) => {
+              const payoutRem = getPayoutRemaining(r, payouts);
+              const outstanding = getOutstanding(r, payments);
+              // บิลที่คนนี้เป็น payer → "ค่าอะไรบ้างที่ค้างคืน"
+              const billsAsPayer = bills.filter((b) => b.payerId === r.userId);
+              return (
+                <div key={r.userId} className={`pay-row status-${r.status.tone}`}>
+                  <div className="pay-row-head">
+                    <div className="pay-row-name">
+                      <img src={r.picture || "https://via.placeholder.com/30"} alt={r.name} className="avatar" />
+                      <div className="min-w-0">
+                        <strong>{r.name}</strong>
+                        <small>จ่าย {money(r.paid)} · หาร {money(r.share)}</small>
+                      </div>
+                    </div>
+                    <StatusPill status={r.status} />
+                  </div>
+
+                  <div className="netting-net">
+                    {r.net > 0.01 && (
+                      <span className="text-success fw-bold">
+                        + {money(payoutRem)} {payoutRem < r.net ? `/ ${money(r.net)}` : ""} (รอรับคืน)
+                      </span>
+                    )}
+                    {r.net < -0.01 && (
+                      <span className="text-danger fw-bold">
+                        - {money(outstanding)} {outstanding < Math.abs(r.net) ? `/ ${money(Math.abs(r.net))}` : ""} (ต้องจ่าย)
+                      </span>
+                    )}
+                    {Math.abs(r.net) < 0.01 && <span className="text-muted">สมดุล</span>}
+                    {r.net > 0.01 && payoutRem > 0.01 && (
+                      <button className="btn btn-sm btn-success" onClick={() => handleSendPayout(r)}>
+                        โอนคืน + แนบสลิป
+                      </button>
+                    )}
+                  </div>
+
+                  {/* รายการบิลที่คนนี้สำรองจ่าย → "ค่าอะไรบ้าง" */}
+                  {billsAsPayer.length > 0 && r.net > 0.01 && (
+                    <details className="netting-bills">
+                      <summary>ดูบิลที่สำรองจ่าย ({billsAsPayer.length} รายการ)</summary>
+                      <ul>
+                        {billsAsPayer.map((b) => (
+                          <li key={b.id}>
+                            <span>{b.title}</span>
+                            <strong>{money(b.amount)}</strong>
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </section>
       )}
-
-      {/* ===== Netting table — ทุกคนในกลุ่ม ===== */}
-      <section className="soft-card p-3 p-md-4">
-        <h2 className="h5 fw-bold mb-3">ยอดสุทธิทั้งกลุ่ม (Netting)</h2>
-        <div className="netting-list">
-          {memberRows.map((r) => (
-            <div key={r.userId} className={`pay-row status-${r.status.tone}`}>
-              <div className="pay-row-head">
-                <div className="pay-row-name">
-                  <img src={r.picture || "https://via.placeholder.com/30"} alt={r.name} className="avatar" />
-                  <div className="min-w-0">
-                    <strong>{r.name}</strong>
-                    <small>จ่าย {money(r.paid)} · หาร {money(r.share)}</small>
-                  </div>
-                </div>
-                <StatusPill status={r.status} />
-              </div>
-              <div className="netting-net">
-                {r.net > 0.01 && <span className="text-success fw-bold">+ {money(r.net)} (รอรับคืน)</span>}
-                {r.net < -0.01 && <span className="text-danger fw-bold">- {money(Math.abs(r.net))} (ต้องจ่าย)</span>}
-                {Math.abs(r.net) < 0.01 && <span className="text-muted">สมดุล</span>}
-                {finance && r.net > 0.01 && r.status.id === STATUS.PENDING_PAYOUT.id && (
-                  <button className="btn btn-sm btn-success" onClick={() => handleSendPayout(r)}>
-                    โอนคืน + แนบสลิป
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
 
       {/* ===== Approval queue (Finance only — FR-3.2) ===== */}
       {finance && (
@@ -339,7 +408,14 @@ function FinanceTab({ group, gid }) {
             <div className="queue-list">
               {pendingQueue.map((p) => (
                 <article key={p.id} className="slip-card">
-                  <img src={p.slipDataUrl} alt="slip" className="slip-thumb" />
+                  <img
+                    src={p.slipDataUrl}
+                    alt="slip"
+                    className="slip-thumb"
+                    onClick={() => setSlipViewer(p.slipDataUrl)}
+                    role="button"
+                    tabIndex={0}
+                  />
                   <div className="slip-info">
                     <div className="d-flex justify-content-between gap-2">
                       <div>
@@ -404,19 +480,42 @@ function FinanceTab({ group, gid }) {
           <p className="text-muted mb-0 small">ยังไม่มีธุรกรรม</p>
         ) : (
           <div className="history-list">
-            {payments.map((p) => (
-              <div key={`pay-${p.id}`} className="history-row">
-                <span className="history-label">เข้า</span>
-                <span className="history-name">{p.userName}</span>
-                <span className="history-amount text-success">+ {money(p.amount)}</span>
-                <span className={`pay-status pay-status-${p.status === "verified" ? "paid" : p.status === "rejected" ? "unpaid" : "partial"}`}>
-                  {p.status === "verified" ? "อนุมัติ" : p.status === "rejected" ? "ปฏิเสธ" : "รอตรวจ"}
-                </span>
-                {finance && (
-                  <button className="btn btn-sm btn-light border" onClick={() => handleDeletePayment(p.id)}>×</button>
-                )}
-              </div>
-            ))}
+            {payments.map((p) => {
+              const actual = Number(p.actualAmount);
+              const claimed = Number(p.amount);
+              const showActual = p.status === "verified" && !Number.isNaN(actual) && Math.abs(actual - claimed) > 0.01;
+              return (
+                <div key={`pay-${p.id}`} className="history-row">
+                  <span className="history-label">เข้า</span>
+                  <span className="history-name">
+                    {p.userName}
+                    {showActual && (
+                      <small className="d-block text-muted">
+                        อ้าง {money(claimed)} · จริง {money(actual)}
+                      </small>
+                    )}
+                  </span>
+                  <span className="history-amount text-success">+ {money(p.actualAmount ?? p.amount)}</span>
+                  <span className={`pay-status pay-status-${p.status === "verified" ? "paid" : p.status === "rejected" ? "unpaid" : "partial"}`}>
+                    {p.status === "verified" ? "อนุมัติ" : p.status === "rejected" ? "ปฏิเสธ" : "รอตรวจ"}
+                  </span>
+                  <div className="history-actions">
+                    {p.slipDataUrl && (
+                      <button
+                        className="btn btn-sm btn-light border"
+                        onClick={() => setSlipViewer(p.slipDataUrl)}
+                        title="ดูสลิป"
+                      >
+                        ดูสลิป
+                      </button>
+                    )}
+                    {finance && (
+                      <button className="btn btn-sm btn-light border" onClick={() => handleDeletePayment(p.id)}>×</button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
             {payouts.map((p) => (
               <div key={`pout-${p.id}`} className="history-row">
                 <span className="history-label out">ออก</span>
@@ -425,14 +524,50 @@ function FinanceTab({ group, gid }) {
                 <span className={`pay-status pay-status-${p.status === "confirmed" ? "paid" : "over"}`}>
                   {p.status === "confirmed" ? "ปิดแล้ว" : "รอยืนยัน"}
                 </span>
-                {finance && (
-                  <button className="btn btn-sm btn-light border" onClick={() => handleDeletePayout(p.id)}>×</button>
-                )}
+                <div className="history-actions">
+                  {p.slipDataUrl && (
+                    <button
+                      className="btn btn-sm btn-light border"
+                      onClick={() => setSlipViewer(p.slipDataUrl)}
+                      title="ดูสลิป"
+                    >
+                      ดูสลิป
+                    </button>
+                  )}
+                  {finance && (
+                    <button className="btn btn-sm btn-light border" onClick={() => handleDeletePayout(p.id)}>×</button>
+                  )}
+                </div>
               </div>
             ))}
           </div>
         )}
       </section>
+
+      {/* ===== Slip Viewer Modal ===== */}
+      {slipViewer && (
+        <div
+          className="slip-viewer"
+          onClick={() => setSlipViewer(null)}
+          role="dialog"
+          aria-modal="true"
+        >
+          <button
+            type="button"
+            className="slip-viewer-close"
+            onClick={() => setSlipViewer(null)}
+            aria-label="ปิด"
+          >
+            ×
+          </button>
+          <img
+            src={slipViewer}
+            alt="สลิป"
+            className="slip-viewer-img"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
     </div>
   );
 }

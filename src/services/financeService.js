@@ -68,15 +68,19 @@ export async function getPayments(gid) {
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
 
-// finance approves/rejects (FR-3)
+// finance approves/rejects (FR-3) — รองรับ actualAmount (จ่ายมาบางส่วนได้)
 export async function reviewPayment(gid, paymentId, decision, reviewer) {
-  return updateDoc(doc(db, "groups", gid, "payments", paymentId), {
+  const update = {
     status: decision.status,         // "verified" | "rejected"
     rejectReason: decision.reason || "",
     reviewedBy: reviewer.userId,
     reviewedByName: reviewer.name,
     reviewedAt: serverTimestamp(),
-  });
+  };
+  if (decision.actualAmount !== undefined) {
+    update.actualAmount = Number(decision.actualAmount) || 0;
+  }
+  return updateDoc(doc(db, "groups", gid, "payments", paymentId), update);
 }
 
 export async function attachGeminiCheck(gid, paymentId, check) {
@@ -126,6 +130,31 @@ export const STATUS = {
   COMPLETED: { id: "completed", label: "ปิดรายการ", tone: "paid" },
 };
 
+// ยอดที่ verified แล้วของคนนี้ (รวม actualAmount แทน amount ถ้ามี)
+export function totalVerifiedPaid(userId, payments) {
+  return payments
+    .filter((p) => p.userId === userId && p.status === "verified")
+    .reduce((s, p) => s + (Number(p.actualAmount) || Number(p.amount) || 0), 0);
+}
+
+// ยอดที่ค้างจ่ายของ user (net ติดลบ - ที่จ่ายไปแล้ว) — ไม่ติดลบ
+export function getOutstanding(memberRow, payments) {
+  if (memberRow.net >= -0.01) return 0;
+  const owed = Math.abs(memberRow.net);
+  const paid = totalVerifiedPaid(memberRow.userId, payments);
+  return Math.max(0, Math.round((owed - paid) * 100) / 100);
+}
+
+// ยอดที่รอรับคืน (net เป็นบวก - ที่ถูกโอนคืนไปแล้ว)
+export function getPayoutRemaining(memberRow, payouts) {
+  if (memberRow.net <= 0.01) return 0;
+  const owed = memberRow.net;
+  const sent = payouts
+    .filter((p) => p.toUserId === memberRow.userId)
+    .reduce((s, p) => s + Number(p.amount || 0), 0);
+  return Math.max(0, Math.round((owed - sent) * 100) / 100);
+}
+
 export function deriveStatus(memberRow, payments, payouts) {
   const { userId, net } = memberRow;
   const myPays = payments.filter((p) => p.userId === userId);
@@ -134,11 +163,14 @@ export function deriveStatus(memberRow, payments, payouts) {
   if (Math.abs(net) < 0.01) return STATUS.COMPLETED;
 
   if (net < 0) {
-    // ต้องจ่ายเพิ่ม
-    const verified = myPays.find((p) => p.status === "verified");
-    if (verified) return STATUS.PAID;
+    // ต้องจ่ายเพิ่ม — ใช้ยอด actualAmount สะสม
+    const owed = Math.abs(net);
+    const paidSum = totalVerifiedPaid(userId, payments);
+    if (paidSum >= owed - 0.01) return STATUS.PAID;
+
     const pending = myPays.find((p) => p.status === "pending");
     if (pending) return STATUS.PENDING_VERIFICATION;
+    // มี verified บางส่วนแล้ว แต่ยังไม่ครบ → ยังถือว่ารอชำระต่อ
     return STATUS.PENDING_PAYMENT;
   }
   // net > 0 → ต้องรับคืน
