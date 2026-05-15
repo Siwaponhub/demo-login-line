@@ -10,6 +10,7 @@ import BackHomeButtons from "./BackHomeButtons";
 import AvailabilityCalendar from "./AvailabilityCalendar";
 import Timeline from "./Timeline";
 import BillManager from "./BillManager";
+import FinanceTab from "./FinanceTab";
 
 const BASE_TABS = [
   {
@@ -57,6 +58,16 @@ const BASE_TABS = [
       </svg>
     ),
   },
+  {
+    id: "finance",
+    label: "การเงิน",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <line x1="12" y1="1" x2="12" y2="23" />
+        <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+      </svg>
+    ),
+  },
 ];
 
 const SETTINGS_TAB = {
@@ -98,6 +109,130 @@ function CopyChip({ label, value, fullText }) {
         </svg>
       </span>
     </button>
+  );
+}
+
+// ============================================================
+// Finance settings (เจ้าของกลุ่มเท่านั้น) — บัญชีกลาง + Role
+// ============================================================
+function FinanceSettings({ group, gid, onUpdate }) {
+  const [bankName, setBankName] = useState(group.wallet?.bankName || "");
+  const [bankAccount, setBankAccount] = useState(group.wallet?.bankAccount || "");
+  const [accountName, setAccountName] = useState(group.wallet?.accountName || "");
+  const [promptpay, setPromptpay] = useState(group.wallet?.promptpay || "");
+  const [qrDataUrl, setQrDataUrl] = useState(group.wallet?.qrDataUrl || "");
+  const [savingWallet, setSavingWallet] = useState(false);
+  const [savingRoles, setSavingRoles] = useState(false);
+  const qrInputRef = useRef(null);
+  const financeIds = group.financeUserIds || [];
+
+  const handleQr = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    const url = await resizeImageToDataURL(file, { maxSize: 512, quality: 0.85 });
+    setQrDataUrl(url);
+  };
+
+  const saveWallet = async () => {
+    setSavingWallet(true);
+    try {
+      const wallet = { bankName, bankAccount, accountName, promptpay, qrDataUrl };
+      await updateDoc(doc(db, "groups", gid), { wallet });
+      onUpdate({ wallet });
+      Swal.fire({ toast: true, position: "top", icon: "success", title: "บันทึกบัญชีกลางแล้ว", showConfirmButton: false, timer: 1400 });
+    } catch (err) {
+      console.error(err);
+      Swal.fire("เกิดข้อผิดพลาด", "บันทึกไม่สำเร็จ", "error");
+    } finally { setSavingWallet(false); }
+  };
+
+  const toggleFinance = async (userId) => {
+    setSavingRoles(true);
+    try {
+      const next = financeIds.includes(userId)
+        ? financeIds.filter((x) => x !== userId)
+        : [...financeIds, userId];
+      await updateDoc(doc(db, "groups", gid), { financeUserIds: next });
+      onUpdate({ financeUserIds: next });
+    } finally { setSavingRoles(false); }
+  };
+
+  return (
+    <>
+      {/* บัญชีกลาง */}
+      <section className="settings-card">
+        <header className="settings-card-header">
+          <span className="settings-eyebrow">บัญชีกลาง</span>
+          <h2 className="settings-title">บัญชีรับโอนของทริป</h2>
+          <p className="settings-desc">สมาชิกจะเห็นเลขบัญชีนี้เมื่อกดปุ่มชำระเงินในแท็บการเงิน</p>
+        </header>
+        <div className="row g-2">
+          <div className="col-12 col-md-6">
+            <label className="form-label fw-bold small">ชื่อบัญชี</label>
+            <input className="form-control" value={accountName} onChange={(e) => setAccountName(e.target.value)} placeholder="เช่น ทริปกลาง" />
+          </div>
+          <div className="col-12 col-md-6">
+            <label className="form-label fw-bold small">PromptPay</label>
+            <input className="form-control" value={promptpay} onChange={(e) => setPromptpay(e.target.value)} placeholder="เบอร์โทร / เลขบัตร" />
+          </div>
+          <div className="col-12 col-md-6">
+            <label className="form-label fw-bold small">ธนาคาร</label>
+            <input className="form-control" value={bankName} onChange={(e) => setBankName(e.target.value)} placeholder="เช่น SCB, KBANK" />
+          </div>
+          <div className="col-12 col-md-6">
+            <label className="form-label fw-bold small">เลขบัญชี</label>
+            <input className="form-control" value={bankAccount} onChange={(e) => setBankAccount(e.target.value)} placeholder="123-4-56789-0" />
+          </div>
+          <div className="col-12">
+            <label className="form-label fw-bold small">QR Code (ถ้ามี)</label>
+            <div className="d-flex align-items-center gap-3 flex-wrap">
+              {qrDataUrl && <img src={qrDataUrl} alt="QR" className="wallet-qr-preview" />}
+              <button type="button" className="btn btn-outline-success" onClick={() => qrInputRef.current?.click()}>
+                {qrDataUrl ? "เปลี่ยน QR" : "อัปโหลด QR"}
+              </button>
+              {qrDataUrl && (
+                <button type="button" className="btn btn-light border" onClick={() => setQrDataUrl("")}>ลบ QR</button>
+              )}
+              <input ref={qrInputRef} type="file" accept="image/*" hidden onChange={handleQr} />
+            </div>
+          </div>
+        </div>
+        <button type="button" className="btn btn-success px-4 mt-3" onClick={saveWallet} disabled={savingWallet}>
+          {savingWallet ? "กำลังบันทึก..." : "บันทึกบัญชีกลาง"}
+        </button>
+      </section>
+
+      {/* Finance role */}
+      <section className="settings-card">
+        <header className="settings-card-header">
+          <span className="settings-eyebrow">สิทธิ์ฝ่ายการเงิน</span>
+          <h2 className="settings-title">เลือกผู้ดูแลการเงิน</h2>
+          <p className="settings-desc">
+            เฉพาะคนที่เลือกไว้เท่านั้นที่กดอนุมัติสลิป / โอนคืน / ดูคิวรอตรวจได้
+          </p>
+        </header>
+        <div className="role-list">
+          {group.members?.map((m) => {
+            const checked = financeIds.includes(m.userId);
+            return (
+              <label key={m.userId} className={`member-pick ${checked ? "is-on" : ""}`}>
+                <input
+                  type="checkbox"
+                  className="form-check-input"
+                  checked={checked}
+                  disabled={savingRoles}
+                  onChange={() => toggleFinance(m.userId)}
+                />
+                <img src={m.picture || "https://via.placeholder.com/30"} alt={m.name} className="avatar" />
+                <span className="member-pick-name">{m.name}</span>
+                {m.userId === group.ownerId && <span className="badge text-bg-success ms-auto">เจ้าของ</span>}
+              </label>
+            );
+          })}
+        </div>
+      </section>
+    </>
   );
 }
 
@@ -391,8 +526,15 @@ function GroupDetail() {
           </div>
         )}
 
+        {activeTab === "finance" && (
+          <FinanceTab group={group} gid={id} />
+        )}
+
         {activeTab === "settings" && isOwner && (
           <div className="settings-stack">
+            {/* บัญชีกลาง + Finance role */}
+            <FinanceSettings group={group} gid={id} onUpdate={(patch) => setGroup((g) => ({ ...g, ...patch }))} />
+
             {/* รูปกลุ่ม */}
             <section className="settings-card">
               <header className="settings-card-header">

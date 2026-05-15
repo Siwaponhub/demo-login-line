@@ -930,6 +930,216 @@
 .debt-amount.is-due { color: #e8590c; }
 .debt-amount.is-over { color: #1864ab; }
 
+/* ============================================================
+   Finance Tab (Centralized Netting + Slip Workflow)
+   ============================================================ */
+
+.finance-stack {
+  display: grid;
+  gap: 16px;
+}
+
+.wallet-card {
+  background: linear-gradient(135deg, var(--hero-from), var(--hero-to));
+  color: #fff;
+  border: 0;
+}
+.wallet-card .settings-eyebrow {
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+}
+.wallet-card h3, .wallet-card p { color: #fff; }
+.wallet-card .small { color: rgba(255, 255, 255, 0.92); }
+
+.wallet-info {
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.wallet-qr {
+  width: 110px;
+  height: 110px;
+  border-radius: 12px;
+  background: #fff;
+  padding: 6px;
+  object-fit: contain;
+}
+
+.wallet-qr-preview {
+  width: 80px;
+  height: 80px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  object-fit: contain;
+  background: #fff;
+  padding: 4px;
+}
+
+.me-dashboard .me-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.me-stats > div {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-mute);
+}
+
+.me-stats small {
+  display: block;
+  color: var(--text-muted);
+  font-size: 0.74rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.me-stats strong {
+  display: block;
+  margin-top: 2px;
+  color: var(--text);
+  font-size: clamp(1rem, 3.4vw, 1.3rem);
+  font-weight: 850;
+}
+
+.netting-list {
+  display: grid;
+  gap: 8px;
+}
+
+.netting-net {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+  margin-top: 6px;
+}
+
+.queue-list {
+  display: grid;
+  gap: 12px;
+}
+
+.slip-card {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+}
+
+.slip-thumb {
+  width: 120px;
+  height: 160px;
+  object-fit: cover;
+  border-radius: 10px;
+  background: var(--surface-mute);
+  cursor: zoom-in;
+}
+
+.slip-info {
+  min-width: 0;
+}
+
+.gemini-result {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+.gemini-result.is-good {
+  background: color-mix(in srgb, #06c755 10%, var(--surface));
+  border-left: 3px solid #06c755;
+}
+.gemini-result.is-warn {
+  background: color-mix(in srgb, #fa5252 10%, var(--surface));
+  border-left: 3px solid #fa5252;
+}
+
+.history-list {
+  display: grid;
+  gap: 6px;
+}
+
+.history-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--surface-mute);
+  font-size: 0.88rem;
+}
+
+.history-label {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(6, 199, 85, 0.16);
+  color: #06a346;
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+.history-label.out {
+  background: rgba(245, 159, 0, 0.18);
+  color: #d97706;
+}
+
+.history-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+}
+
+.history-amount {
+  flex: 0 0 auto;
+  font-weight: 850;
+  font-variant-numeric: tabular-nums;
+}
+
+.role-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+}
+
+@media (max-width: 540px) {
+  .me-stats {
+    grid-template-columns: 1fr;
+  }
+  .slip-card {
+    grid-template-columns: 100px minmax(0, 1fr);
+  }
+  .slip-thumb {
+    width: 100px;
+    height: 130px;
+  }
+  .history-row {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+  .history-row > .pay-status,
+  .history-row > .btn {
+    grid-column: 1 / -1;
+    justify-self: end;
+  }
+}
+
 .expense-layout {
   display: grid;
   grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.65fr);
