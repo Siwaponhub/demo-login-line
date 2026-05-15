@@ -714,7 +714,16 @@ function BillManager() {
                       <small>{activeBill.participants?.length || 0} คน</small>
                     </div>
 
-                    {(activeBill.participants || []).map((p) => {
+                    {[...(activeBill.participants || [])]
+                      .sort((a, b) => {
+                        // ชื่อตัวเองขึ้นก่อน, แล้วผู้จ่ายเงิน, ที่เหลือคงลำดับเดิม
+                        if (a.userId === user?.userId) return -1;
+                        if (b.userId === user?.userId) return 1;
+                        if (a.userId === activeBill.payerId) return -1;
+                        if (b.userId === activeBill.payerId) return 1;
+                        return 0;
+                      })
+                      .map((p) => {
                       const draftPaid = draftFor(activeBill, p.userId);
                       const status = paymentStatus(p.share, draftPaid);
                       const isPayer = p.userId === activeBill.payerId;
