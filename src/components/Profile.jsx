@@ -5,7 +5,7 @@ import BackHomeButtons from "./BackHomeButtons";
 
 function Profile() {
   const { user } = useAuth();
-  const { theme, setTheme, themes } = useTheme();
+  const { theme, setTheme, themes, syncing } = useTheme();
 
   if (!user) {
     return (
@@ -49,9 +49,18 @@ function Profile() {
         <header className="theme-picker-header">
           <div>
             <span className="theme-picker-eyebrow">การตั้งค่า</span>
-            <h2 className="theme-picker-title">ธีมของแอป</h2>
+            <h2 className="theme-picker-title">
+              ธีมของแอป
+              {syncing && (
+                <span className="theme-sync-pill" title="กำลังซิงค์กับบัญชี">
+                  <span className="spinner-border spinner-border-sm" role="status" />
+                  ซิงค์
+                </span>
+              )}
+            </h2>
             <p className="theme-picker-desc">
-              เลือกโทนสีที่ชอบ — ใช้กับทุกหน้าและจะถูกจดจำไว้ในเครื่องนี้
+              เลือกโทนสีที่ชอบ — ระบบจะบันทึกไว้กับบัญชี LINE ของคุณ
+              ใช้งานบนอุปกรณ์ไหนก็จะเห็นธีมเดียวกัน
             </p>
           </div>
         </header>
