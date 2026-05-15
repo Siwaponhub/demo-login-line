@@ -14,6 +14,7 @@ const emptyBill = {
   title: "",
   amount: "",
   payerId: "",
+  slipDataUrl: "",
   participants: [],
 };
 
@@ -31,6 +32,69 @@ function paymentStatus(share, paid) {
   if (Math.abs(p - s) < 0.01) return { id: "paid", label: "จ่ายครบ", remaining: 0 };
   if (p < s) return { id: "partial", label: `ค้าง ${money(s - p)}`, remaining: s - p };
   return { id: "over", label: `เกิน ${money(p - s)}`, remaining: s - p };
+}
+
+function paidValueFor(bill, participant, drafts = {}) {
+  if (participant.userId === bill.payerId) {
+    return Number(participant.share || 0);
+  }
+  if (Object.prototype.hasOwnProperty.call(drafts, participant.userId)) {
+    return Number(drafts[participant.userId]) || 0;
+  }
+  return Number(participant.paid) || 0;
+}
+
+function roundMoney(value) {
+  return Math.round(Number(value || 0) * 100) / 100;
+}
+
+function makePaymentLogId() {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function formatLogTime(value) {
+  if (!value) return "";
+  const date = value.toDate ? value.toDate() : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString("th-TH", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+}
+
+function paymentLogText(log) {
+  if (log.type === "bill_created") {
+    return `${log.fromName} ออกเงินค่า ${log.billTitle} ให้กลุ่ม`;
+  }
+  if (log.type === "payment_adjustment") {
+    return `${log.createdByName || "ผู้ดูแล"} ปรับยอดของ ${log.fromName} ใน ${log.billTitle}`;
+  }
+  if (log.type === "slip_added") {
+    return `${log.fromName} แนบสลิปค่า ${log.billTitle}`;
+  }
+  if (log.type === "slip_updated") {
+    return `${log.fromName} เปลี่ยนสลิปค่า ${log.billTitle}`;
+  }
+  if (log.type === "slip_removed") {
+    return `${log.fromName} ลบสลิปค่า ${log.billTitle}`;
+  }
+  return `${log.fromName} จ่ายค่า ${log.billTitle} ให้ ${log.toName}`;
+}
+
+function createBillOpenLog(payload, actor) {
+  return {
+    id: makePaymentLogId(),
+    type: "bill_created",
+    amount: roundMoney(payload.amount),
+    billTitle: payload.title,
+    fromUserId: payload.payerId,
+    fromName: payload.payerName || "ผู้จ่าย",
+    toUserId: "group",
+    toName: "กลุ่ม",
+    createdAt: new Date().toISOString(),
+    createdBy: actor.userId,
+    createdByName: actor.name,
+  };
 }
 
 async function pickAndCompressSlip() {
@@ -180,6 +244,20 @@ function BillManager() {
     [summaryByPerson]
   );
 
+  const allPaymentLogs = useMemo(
+    () =>
+      bills
+        .flatMap((bill) =>
+          (bill.paymentLogs || []).map((log) => ({
+            ...log,
+            billId: bill.id,
+            billTitle: log.billTitle || bill.title,
+          }))
+        )
+        .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0)),
+    [bills]
+  );
+
   const updateForm = (field, value) => {
     setForm((current) => ({ ...current, [field]: value }));
   };
@@ -273,6 +351,16 @@ function BillManager() {
     }));
   };
 
+  const attachBillSlip = async () => {
+    const slipDataUrl = await pickAndCompressSlip();
+    if (!slipDataUrl) return;
+    updateForm("slipDataUrl", slipDataUrl);
+  };
+
+  const removeBillSlip = () => {
+    updateForm("slipDataUrl", "");
+  };
+
   const handleSubmit = async (event) => {
     event.preventDefault();
     const amount = Number(form.amount || 0);
@@ -297,7 +385,7 @@ function BillManager() {
     const payer = members.find((m) => m.userId === form.payerId);
     const participantsWithPaid = form.participants.map((p) => ({
       ...p,
-      paid: Number(p.paid) || 0,
+      paid: p.userId === form.payerId ? Number(p.share || 0) : Number(p.paid) || 0,
     }));
 
     const payload = {
@@ -305,6 +393,7 @@ function BillManager() {
       amount,
       payerId: form.payerId,
       payerName: payer?.name || "",
+      slipDataUrl: form.slipDataUrl || "",
       participants: participantsWithPaid,
       updatedBy: user.userId,
     };
@@ -317,7 +406,11 @@ function BillManager() {
           title: "แก้ไขบิลแล้ว", showConfirmButton: false, timer: 1400,
         });
       } else {
-        await createBill(id, { ...payload, createdBy: user.userId });
+        await createBill(id, {
+          ...payload,
+          createdBy: user.userId,
+          paymentLogs: [createBillOpenLog(payload, user)],
+        });
         Swal.fire({
           toast: true, position: "top", icon: "success",
           title: "สร้างบิลแล้ว", showConfirmButton: false, timer: 1400,
@@ -340,6 +433,7 @@ function BillManager() {
       title: bill.title || "",
       amount: bill.amount || "",
       payerId: bill.payerId || user?.userId || "",
+      slipDataUrl: bill.slipDataUrl || "",
       participants: (bill.participants || []).map((p) => ({
         ...p,
         paid: Number(p.paid) || 0,
@@ -372,11 +466,14 @@ function BillManager() {
   // === Payment editing ===
 
   const draftFor = (bill, userId) => {
+    const p = bill.participants?.find((x) => x.userId === userId);
+    if (userId === bill.payerId) {
+      return Number(p?.share || 0);
+    }
     const drafts = paidDrafts[bill.id];
     if (drafts && Object.prototype.hasOwnProperty.call(drafts, userId)) {
       return drafts[userId];
     }
-    const p = bill.participants?.find((x) => x.userId === userId);
     return Number(p?.paid || 0);
   };
 
@@ -440,23 +537,71 @@ function BillManager() {
     const slipDraft = slipDrafts[bill.id] || {};
     const updatedParticipants = (bill.participants || []).map((p) => ({
       ...p,
-      paid: Object.prototype.hasOwnProperty.call(drafts, p.userId)
-        ? Number(drafts[p.userId]) || 0
-        : Number(p.paid) || 0,
+      paid: paidValueFor(bill, p, drafts),
       slipDataUrl: Object.prototype.hasOwnProperty.call(slipDraft, p.userId)
         ? slipDraft[p.userId] || ""
         : p.slipDataUrl || "",
     }));
+    const payer = members.find((m) => m.userId === bill.payerId);
+    const payerName = payer?.name || bill.payerName || "ผู้จ่าย";
+    const nowIso = new Date().toISOString();
+    const newLogs = updatedParticipants.flatMap((nextP) => {
+      if (nextP.userId === bill.payerId) return [];
+      const prevP = bill.participants?.find((p) => p.userId === nextP.userId) || {};
+      const prevPaid = roundMoney(prevP.paid);
+      const nextPaid = roundMoney(nextP.paid);
+      const delta = roundMoney(nextPaid - prevPaid);
+      const prevSlip = prevP.slipDataUrl || "";
+      const nextSlip = nextP.slipDataUrl || "";
+      const base = {
+        billTitle: bill.title,
+        fromUserId: nextP.userId,
+        fromName: nextP.name,
+        toUserId: bill.payerId,
+        toName: payerName,
+        share: roundMoney(nextP.share),
+        paid: nextPaid,
+        createdAt: nowIso,
+        createdBy: user.userId,
+        createdByName: user.name,
+      };
+      const logs = [];
+
+      if (Math.abs(delta) >= 0.01) {
+        logs.push({
+          ...base,
+          id: makePaymentLogId(),
+          type: delta > 0 ? "payment" : "payment_adjustment",
+          amount: Math.abs(delta),
+          previousPaid: prevPaid,
+        });
+      }
+
+      if (prevSlip !== nextSlip) {
+        logs.push({
+          ...base,
+          id: makePaymentLogId(),
+          type: !nextSlip ? "slip_removed" : prevSlip ? "slip_updated" : "slip_added",
+          amount: nextPaid,
+        });
+      }
+
+      return logs;
+    });
+    const nextPaymentLogs = [...(bill.paymentLogs || []), ...newLogs];
     try {
       setSavingPayments(true);
       await updateBill(id, bill.id, {
         ...bill,
         participants: updatedParticipants,
+        paymentLogs: nextPaymentLogs,
         updatedBy: user.userId,
       });
       setBills((prev) =>
         prev.map((b) =>
-          b.id === bill.id ? { ...b, participants: updatedParticipants } : b
+          b.id === bill.id
+            ? { ...b, participants: updatedParticipants, paymentLogs: nextPaymentLogs }
+            : b
         )
       );
       setPaidDrafts((prev) => {
@@ -543,10 +688,7 @@ function BillManager() {
       0
     );
     const totalPaid = (activeBill.participants || []).reduce((sum, p) => {
-      const v = Object.prototype.hasOwnProperty.call(drafts, p.userId)
-        ? Number(drafts[p.userId]) || 0
-        : Number(p.paid) || 0;
-      return sum + v;
+      return sum + paidValueFor(activeBill, p, drafts);
     }, 0);
     return { totalShare, totalPaid, remaining: totalShare - totalPaid };
   })();
@@ -635,6 +777,36 @@ function BillManager() {
                   <option key={m.userId} value={m.userId}>{m.name}</option>
                 ))}
               </select>
+            </div>
+          </div>
+
+          <div className="bill-slip-field mt-3">
+            <div className="bill-slip-text">
+              <strong>สลิป/ใบเสร็จของบิล</strong>
+              <small>แนบหลักฐานตอนเปิดบิลได้</small>
+            </div>
+            {form.slipDataUrl ? (
+              <button
+                type="button"
+                className="bill-slip-preview"
+                onClick={() => openImage(form.slipDataUrl, `${form.title || "bill"}-slip.jpg`)}
+                title="ดูสลิปบิล"
+              >
+                <img src={form.slipDataUrl} alt="สลิปบิล" />
+                <span>ดูสลิป</span>
+              </button>
+            ) : (
+              <span className="bill-slip-empty">ยังไม่มีสลิป</span>
+            )}
+            <div className="bill-slip-actions">
+              <button type="button" className="btn btn-sm btn-light border" onClick={attachBillSlip}>
+                {form.slipDataUrl ? "เปลี่ยนสลิป" : "แนบสลิป"}
+              </button>
+              {form.slipDataUrl && (
+                <button type="button" className="btn btn-sm btn-outline-danger" onClick={removeBillSlip}>
+                  ลบสลิป
+                </button>
+              )}
             </div>
           </div>
 
@@ -748,7 +920,7 @@ function BillManager() {
                     (s, p) => s + Number(p.share || 0), 0
                   );
                   const totalPaid = (bill.participants || []).reduce(
-                    (s, p) => s + Number(p.paid || 0), 0
+                    (s, p) => s + paidValueFor(bill, p), 0
                   );
                   const isSettled = totalShare > 0 && Math.abs(totalShare - totalPaid) < 0.01;
                   return (
@@ -775,7 +947,18 @@ function BillManager() {
                       <h3>{activeBill.title}</h3>
                       <p>ออกโดย {activeBill.payerName || "ผู้จ่าย"}</p>
                     </div>
-                    <strong>{money(activeBill.amount)}</strong>
+                    <div className="bill-card-meta">
+                      <strong>{money(activeBill.amount)}</strong>
+                      {activeBill.slipDataUrl && (
+                        <button
+                          type="button"
+                          className="bill-slip-link"
+                          onClick={() => openImage(activeBill.slipDataUrl, `bill-${activeBill.id}-slip.jpg`)}
+                        >
+                          ดูสลิปบิล
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   <div className="bill-participants">
@@ -980,6 +1163,30 @@ function BillManager() {
               })}
             </div>
           )}
+
+          <div className="bill-log-panel">
+            <h2 className="h5 fw-bold">ประวัติการชำระทั้งหมด</h2>
+            {allPaymentLogs.length === 0 ? (
+              <p className="text-muted mb-0 small">ยังไม่มี logs การชำระ</p>
+            ) : (
+              <div className="bill-log-list">
+                {allPaymentLogs.map((log) => (
+                  <article key={`${log.billId}-${log.id}`} className={`bill-log-row type-${log.type}`}>
+                    <div className="bill-log-main">
+                      <strong>{paymentLogText(log)}</strong>
+                      <small>
+                        {formatLogTime(log.createdAt)}
+                        {log.createdByName && ` · บันทึกโดย ${log.createdByName}`}
+                      </small>
+                    </div>
+                    {Number(log.amount) > 0 && (
+                      <span className="bill-log-amount">{money(log.amount)}</span>
+                    )}
+                  </article>
+                ))}
+              </div>
+            )}
+          </div>
         </aside>
       </section>
 

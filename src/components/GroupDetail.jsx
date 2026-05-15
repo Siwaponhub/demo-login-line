@@ -4,6 +4,7 @@ import { doc, getDoc, updateDoc } from "firebase/firestore";
 import Swal from "sweetalert2";
 import { db } from "../firebase";
 import { useAuth } from "../AuthContext";
+import { getUserProfile } from "../services/userService";
 import { resizeImageToDataURL } from "../utils/image";
 import GroupAvatar from "./GroupAvatar";
 import BackHomeButtons from "./BackHomeButtons";
@@ -244,6 +245,8 @@ function GroupDetail() {
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
   const [savingName, setSavingName] = useState(false);
+  const [memberProfile, setMemberProfile] = useState(null);
+  const [loadingMemberId, setLoadingMemberId] = useState("");
   const fileInputRef = useRef(null);
 
   useEffect(() => {
@@ -278,6 +281,18 @@ function GroupDetail() {
     }
   }, [activeTab, isOwner]);
 
+  useEffect(() => {
+    if (!memberProfile) return;
+    const onKey = (event) => event.key === "Escape" && setMemberProfile(null);
+    document.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [memberProfile]);
+
   const handleTabChange = (tabId) => {
     setActiveTab(tabId);
     const next = new URLSearchParams(searchParams);
@@ -303,6 +318,23 @@ function GroupDetail() {
     await updateDoc(doc(db, "groups", id), { members: updated });
     setGroup({ ...group, members: updated });
     Swal.fire("สำเร็จ", "ลบสมาชิกเรียบร้อย", "success");
+  };
+
+  const handleOpenMemberProfile = async (member) => {
+    setLoadingMemberId(member.userId);
+    try {
+      const profile = await getUserProfile(member.userId);
+      setMemberProfile({
+        ...member,
+        ...(profile || {}),
+        bankProfile: profile?.bankProfile || member.bankProfile || null,
+      });
+    } catch (err) {
+      console.error(err);
+      Swal.fire("เกิดข้อผิดพลาด", "โหลดโปรไฟล์สมาชิกไม่สำเร็จ", "error");
+    } finally {
+      setLoadingMemberId("");
+    }
   };
 
   const handleChoosePhoto = () => {
@@ -490,18 +522,28 @@ function GroupDetail() {
                     </div>
                   </div>
 
-                  {member.userId === group.ownerId ? (
-                    <span className="badge text-bg-success">เจ้าของ</span>
-                  ) : (
-                    isOwner && (
-                      <button
-                        className="btn btn-sm btn-outline-danger"
-                        onClick={() => handleRemoveMember(member.userId)}
-                      >
-                        ลบ
-                      </button>
-                    )
-                  )}
+                  <div className="member-row-actions">
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-light border"
+                      onClick={() => handleOpenMemberProfile(member)}
+                      disabled={loadingMemberId === member.userId}
+                    >
+                      {loadingMemberId === member.userId ? "กำลังโหลด..." : "ดูโปรไฟล์"}
+                    </button>
+                    {member.userId === group.ownerId ? (
+                      <span className="badge text-bg-success">เจ้าของ</span>
+                    ) : (
+                      isOwner && (
+                        <button
+                          className="btn btn-sm btn-outline-danger"
+                          onClick={() => handleRemoveMember(member.userId)}
+                        >
+                          ลบ
+                        </button>
+                      )
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
@@ -622,6 +664,76 @@ function GroupDetail() {
           </div>
         )}
       </div>
+
+      {memberProfile && (
+        <div
+          className="member-profile-modal"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setMemberProfile(null)}
+        >
+          <div className="member-profile-dialog" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              className="member-profile-close"
+              onClick={() => setMemberProfile(null)}
+              aria-label="ปิด"
+            >
+              ×
+            </button>
+            <div className="member-profile-head">
+              <img
+                src={memberProfile.picture || "https://via.placeholder.com/96"}
+                alt={memberProfile.name}
+                className="member-profile-avatar"
+              />
+              <div className="min-w-0">
+                <h2>{memberProfile.name}</h2>
+                <p>{memberProfile.email || "ไม่มีอีเมล"}</p>
+                {memberProfile.userId === group.ownerId && (
+                  <span className="badge text-bg-success">เจ้าของกลุ่ม</span>
+                )}
+              </div>
+            </div>
+
+            <section className="member-profile-section">
+              <h3>บัญชีรับเงิน</h3>
+              {memberProfile.bankProfile?.bankAccount || memberProfile.bankProfile?.promptpay ? (
+                <div className="member-bank-list">
+                  {memberProfile.bankProfile.accountName && (
+                    <div className="member-bank-row">
+                      <span>ชื่อบัญชี</span>
+                      <strong>{memberProfile.bankProfile.accountName}</strong>
+                    </div>
+                  )}
+                  {memberProfile.bankProfile.bankName && (
+                    <div className="member-bank-row">
+                      <span>ธนาคาร</span>
+                      <strong>{memberProfile.bankProfile.bankName}</strong>
+                    </div>
+                  )}
+                  {memberProfile.bankProfile.bankAccount && (
+                    <CopyChip
+                      label="เลขบัญชี"
+                      value={memberProfile.bankProfile.bankAccount}
+                      fullText={memberProfile.bankProfile.bankAccount}
+                    />
+                  )}
+                  {memberProfile.bankProfile.promptpay && (
+                    <CopyChip
+                      label="PromptPay"
+                      value={memberProfile.bankProfile.promptpay}
+                      fullText={memberProfile.bankProfile.promptpay}
+                    />
+                  )}
+                </div>
+              ) : (
+                <p className="member-profile-empty">ยังไม่ได้บันทึกบัญชีธนาคาร</p>
+              )}
+            </section>
+          </div>
+        </div>
+      )}
 
       <BackHomeButtons />
     </>

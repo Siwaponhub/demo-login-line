@@ -38,6 +38,8 @@
 
   --topbar-bg: rgba(255, 255, 255, 0.9);
   --topbar-border: rgba(215, 222, 234, 0.9);
+  --app-bg-image: none;
+  --app-bg-image-opacity: 0;
 
   --radius-sm: 12px;
   --radius-md: 16px;
@@ -138,6 +140,10 @@
   color-scheme: dark;
 }
 
+:root[data-theme="custom"] {
+  color-scheme: light;
+}
+
 /* ============================================================
    Base
    ============================================================ */
@@ -158,6 +164,7 @@
 }
 
 body {
+  position: relative;
   min-width: 320px;
   min-height: 100vh;
   margin: 0;
@@ -166,6 +173,24 @@ body {
     radial-gradient(circle at top left, var(--bg-radial), transparent 28rem),
     linear-gradient(180deg, var(--bg-grad-a) 0%, var(--bg-grad-b) 100%);
   transition: background-color 240ms ease, color 240ms ease;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image: var(--app-bg-image);
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+  opacity: var(--app-bg-image-opacity);
+}
+
+#root {
+  position: relative;
+  z-index: 1;
 }
 
 a {

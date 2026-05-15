@@ -50,6 +50,8 @@ function FinanceTab({ group, gid }) {
   const [payouts, setPayouts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState(null);
+  const [payoutModal, setPayoutModal] = useState(null);
+  const [savingPayout, setSavingPayout] = useState(false);
   const fileSubmittingRef = useRef(false);
 
   const finance = isFinance(group, user?.userId);
@@ -71,6 +73,20 @@ function FinanceTab({ group, gid }) {
     }
   };
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, [gid]);
+
+  useEffect(() => {
+    if (!payoutModal) return;
+    const onKey = (event) => {
+      if (event.key === "Escape" && !savingPayout) setPayoutModal(null);
+    };
+    document.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [payoutModal, savingPayout]);
 
   const netting = useMemo(
     () => computeNetting(bills, group?.members || []),
@@ -191,44 +207,65 @@ function FinanceTab({ group, gid }) {
     } finally { setBusyId(null); }
   };
 
-  // ====== Finance: โอนคืนสมาชิก (ระบุยอดตอนแนบสลิปได้) ======
+  // ====== Finance: โอนคืนสมาชิก (modal แนบสลิป + ระบุยอด) ======
   const handleSendPayout = async (row) => {
     if (fileSubmittingRef.current) return;
     const remaining = getPayoutRemaining(row, payouts);
     if (remaining <= 0) return;
-
-    const { value } = await Swal.fire({
-      title: "ยอดที่โอนคืน",
-      html: `<small class="text-muted">ยอดคงเหลือที่ต้องโอนคืน: <strong>${money(remaining)}</strong></small>`,
-      input: "number",
-      inputValue: remaining,
-      inputAttributes: { min: 0.01, max: remaining, step: 0.01 },
-      showCancelButton: true,
-      confirmButtonText: "ต่อไปแนบสลิป",
-      cancelButtonText: "ยกเลิก",
-      confirmButtonColor: "#06c755",
-      inputValidator: (v) => {
-        const amount = Number(v);
-        if (!amount || amount <= 0) return "กรอกยอดที่โอนคืน";
-        if (amount > remaining + 0.01) return `ยอดต้องไม่เกิน ${money(remaining)}`;
-        return undefined;
-      },
+    setPayoutModal({
+      row,
+      remaining,
+      amount: String(remaining),
+      slipDataUrl: "",
     });
-    if (value === undefined) return;
+  };
 
-    const payoutAmount = Math.round(Number(value) * 100) / 100;
+  const handlePickPayoutSlip = async () => {
+    const slip = await pickAndCompressSlip();
+    if (!slip) return;
+    setPayoutModal((current) =>
+      current ? { ...current, slipDataUrl: slip } : current
+    );
+  };
+
+  const closePayoutModal = () => {
+    if (savingPayout) return;
+    setPayoutModal(null);
+  };
+
+  const handleSubmitPayout = async (event) => {
+    event.preventDefault();
+    if (!payoutModal || fileSubmittingRef.current) return;
+    const payoutAmount = Math.round(Number(payoutModal.amount) * 100) / 100;
+    if (!payoutAmount || payoutAmount <= 0) {
+      Swal.fire("กรอกยอดที่โอนคืน", "ระบุจำนวนเงินมากกว่า 0", "info");
+      return;
+    }
+    if (payoutAmount > payoutModal.remaining + 0.01) {
+      Swal.fire("ยอดเกินคงเหลือ", `ยอดต้องไม่เกิน ${money(payoutModal.remaining)}`, "info");
+      return;
+    }
+    if (!payoutModal.slipDataUrl) {
+      Swal.fire("ยังไม่มีสลิป", "แนบรูปสลิปก่อนบันทึก", "info");
+      return;
+    }
     fileSubmittingRef.current = true;
+    setSavingPayout(true);
     try {
-      const slip = await pickAndCompressSlip();
-      if (!slip) return;
       await sendPayout(gid, {
-        toUserId: row.userId, toUserName: row.name,
-        amount: payoutAmount, slipDataUrl: slip,
+        toUserId: payoutModal.row.userId,
+        toUserName: payoutModal.row.name,
+        amount: payoutAmount,
+        slipDataUrl: payoutModal.slipDataUrl,
         createdBy: user.userId, createdByName: user.name,
       });
+      setPayoutModal(null);
       toast("success", `ส่งสลิปคืนแล้ว (${money(payoutAmount)})`);
       reload();
-    } finally { fileSubmittingRef.current = false; }
+    } finally {
+      fileSubmittingRef.current = false;
+      setSavingPayout(false);
+    }
   };
 
   // ====== Finance: ลบ records ======
@@ -565,6 +602,91 @@ function FinanceTab({ group, gid }) {
           </div>
         )}
       </section>
+
+      {payoutModal && (
+        <div
+          className="payout-modal"
+          role="dialog"
+          aria-modal="true"
+          onClick={closePayoutModal}
+        >
+          <form className="payout-dialog" onSubmit={handleSubmitPayout} onClick={(e) => e.stopPropagation()}>
+            <div className="payout-dialog-head">
+              <div className="min-w-0">
+                <h3>โอนคืนให้ {payoutModal.row.name}</h3>
+                <p>คงเหลือ {money(payoutModal.remaining)}</p>
+              </div>
+              <button
+                type="button"
+                className="payout-dialog-close"
+                onClick={closePayoutModal}
+                aria-label="ปิด"
+                disabled={savingPayout}
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="payout-slip-panel">
+              {payoutModal.slipDataUrl ? (
+                <button
+                  type="button"
+                  className="payout-slip-preview"
+                  onClick={() => openImage(payoutModal.slipDataUrl, `payout-${payoutModal.row.userId}.jpg`)}
+                  title="ดูสลิป"
+                >
+                  <img src={payoutModal.slipDataUrl} alt="สลิปโอนเงินคืน" />
+                </button>
+              ) : (
+                <button type="button" className="payout-slip-empty" onClick={handlePickPayoutSlip}>
+                  <span>แนบสลิปโอนเงินคืน</span>
+                  <small>แตะเพื่อเลือกรูป</small>
+                </button>
+              )}
+              <button
+                type="button"
+                className="btn btn-sm btn-light border"
+                onClick={handlePickPayoutSlip}
+                disabled={savingPayout}
+              >
+                {payoutModal.slipDataUrl ? "เปลี่ยนรูป" : "เลือกรูปสลิป"}
+              </button>
+            </div>
+
+            <label className="payout-amount-field">
+              <span>จำนวนเงินที่จ่ายคืน</span>
+              <input
+                type="number"
+                min="0.01"
+                max={payoutModal.remaining}
+                step="0.01"
+                className="form-control"
+                value={payoutModal.amount}
+                onChange={(e) =>
+                  setPayoutModal((current) =>
+                    current ? { ...current, amount: e.target.value } : current
+                  )
+                }
+                disabled={savingPayout}
+              />
+            </label>
+
+            <div className="payout-dialog-actions">
+              <button
+                type="button"
+                className="btn btn-light border"
+                onClick={closePayoutModal}
+                disabled={savingPayout}
+              >
+                ยกเลิก
+              </button>
+              <button type="submit" className="btn btn-success" disabled={savingPayout}>
+                {savingPayout ? "กำลังบันทึก..." : "บันทึกการโอนคืน"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
 
     </div>
   );

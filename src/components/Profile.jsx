@@ -1,14 +1,73 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import Swal from "sweetalert2";
 import { useAuth } from "../AuthContext";
-import { useTheme } from "../ThemeContext";
+import { CUSTOM_THEME_ID, DEFAULT_CUSTOM_THEME, useTheme } from "../ThemeContext";
+import { getUserProfile, saveBankProfile } from "../services/userService";
+import { resizeImageToDataURL } from "../utils/image";
 import BackHomeButtons from "./BackHomeButtons";
 
+const emptyBankProfile = {
+  accountName: "",
+  bankName: "",
+  bankAccount: "",
+  promptpay: "",
+};
+
+const customFields = [
+  { key: "accent", label: "สีหลัก" },
+  { key: "accentStrong", label: "สีปุ่มเข้ม" },
+  { key: "accent2", label: "สีรอง" },
+  { key: "bg", label: "พื้นหลัง 1" },
+  { key: "bgAlt", label: "พื้นหลัง 2" },
+  { key: "surface", label: "พื้นผิว" },
+  { key: "surfaceMute", label: "พื้นผิวอ่อน" },
+  { key: "text", label: "ตัวอักษร" },
+  { key: "textMuted", label: "ตัวอักษรรอง" },
+];
+
+const sameJson = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
 function Profile() {
-  const { user } = useAuth();
-  const { theme, preview, setPreview, saveTheme, themes, syncing } = useTheme();
+  const { user, updateUser } = useAuth();
+  const {
+    theme,
+    preview,
+    setPreview,
+    customTheme,
+    previewCustomTheme,
+    setPreviewCustomTheme,
+    backgroundImage,
+    previewBackgroundImage,
+    setPreviewBackgroundImage,
+    saveTheme,
+    themes,
+    syncing,
+  } = useTheme();
   const [saving, setSaving] = useState(false);
+  const [savingBank, setSavingBank] = useState(false);
+  const [bankProfile, setBankProfile] = useState(() => user?.bankProfile || emptyBankProfile);
+  const bgInputRef = useRef(null);
+
+  useEffect(() => {
+    if (!user?.userId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const profile = await getUserProfile(user.userId);
+        if (cancelled) return;
+        if (profile?.bankProfile) {
+          setBankProfile({ ...emptyBankProfile, ...profile.bankProfile });
+          updateUser({ bankProfile: profile.bankProfile });
+        }
+      } catch (err) {
+        console.error("load bank profile failed", err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.userId, updateUser]);
 
   if (!user) {
     return (
@@ -23,7 +82,14 @@ function Profile() {
 
   // ธีมที่เลือกอยู่ตอนนี้ (preview มีน้ำหนักก่อน)
   const selected = preview ?? theme;
-  const dirty = preview !== null && preview !== theme;
+  const activeCustomTheme = previewCustomTheme ?? customTheme;
+  const activeBackgroundImage =
+    previewBackgroundImage !== null ? previewBackgroundImage : backgroundImage;
+  const themeDirty = preview !== null && preview !== theme;
+  const customDirty = previewCustomTheme !== null && !sameJson(activeCustomTheme, customTheme);
+  const backgroundDirty =
+    previewBackgroundImage !== null && previewBackgroundImage !== backgroundImage;
+  const dirty = themeDirty || customDirty || backgroundDirty;
 
   const handlePick = (id) => {
     // กดธีมที่เป็น current อยู่แล้ว → เคลียร์ preview
@@ -31,11 +97,40 @@ function Profile() {
     else setPreview(id);
   };
 
+  const updateCustom = (field, value) => {
+    setPreview(CUSTOM_THEME_ID);
+    setPreviewCustomTheme({
+      ...activeCustomTheme,
+      [field]: value,
+    });
+  };
+
+  const resetCustom = () => {
+    setPreview(CUSTOM_THEME_ID);
+    setPreviewCustomTheme(DEFAULT_CUSTOM_THEME);
+  };
+
+  const handleBackgroundFile = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    try {
+      const url = await resizeImageToDataURL(file, { maxSize: 1200, quality: 0.72 });
+      setPreviewBackgroundImage(url);
+    } catch (err) {
+      console.error(err);
+      Swal.fire("เกิดข้อผิดพลาด", "อัปโหลดรูปพื้นหลังไม่สำเร็จ", "error");
+    }
+  };
+
   const handleSave = async () => {
     if (!dirty) return;
     try {
       setSaving(true);
-      await saveTheme(preview);
+      await saveTheme(selected, {
+        customTheme: activeCustomTheme,
+        backgroundImage: activeBackgroundImage,
+      });
       Swal.fire({
         toast: true,
         position: "top",
@@ -52,7 +147,37 @@ function Profile() {
     }
   };
 
-  const handleCancel = () => setPreview(null);
+  const handleCancel = () => {
+    setPreview(null);
+    setPreviewCustomTheme(null);
+    setPreviewBackgroundImage(null);
+  };
+
+  const updateBank = (field, value) => {
+    setBankProfile((current) => ({ ...current, [field]: value }));
+  };
+
+  const handleSaveBank = async () => {
+    try {
+      setSavingBank(true);
+      const saved = await saveBankProfile(user.userId, bankProfile);
+      setBankProfile(saved);
+      updateUser({ bankProfile: saved });
+      Swal.fire({
+        toast: true,
+        position: "top",
+        icon: "success",
+        title: "บันทึกบัญชีธนาคารแล้ว",
+        showConfirmButton: false,
+        timer: 1400,
+      });
+    } catch (err) {
+      console.error(err);
+      Swal.fire("เกิดข้อผิดพลาด", "บันทึกบัญชีธนาคารไม่สำเร็จ", "error");
+    } finally {
+      setSavingBank(false);
+    }
+  };
 
   return (
     <>
@@ -74,6 +199,68 @@ function Profile() {
             <h2 className="profile-name">{user.name}</h2>
             <p className="profile-email">{user.email || "ไม่มีอีเมล"}</p>
           </div>
+        </div>
+      </section>
+
+      <section className="profile-bank-card">
+        <header className="theme-picker-header">
+          <div>
+            <span className="theme-picker-eyebrow">บัญชีรับเงิน</span>
+            <h2 className="theme-picker-title">บัญชีธนาคารของคุณ</h2>
+            <p className="theme-picker-desc">
+              ใช้แสดงให้สมาชิกในกลุ่มเห็นเมื่อต้องโอนคืนให้คุณ
+            </p>
+          </div>
+        </header>
+
+        <div className="profile-bank-grid">
+          <label className="profile-bank-field">
+            <span>ชื่อบัญชี</span>
+            <input
+              className="form-control"
+              value={bankProfile.accountName}
+              onChange={(e) => updateBank("accountName", e.target.value)}
+              placeholder="เช่น Surasak S."
+            />
+          </label>
+          <label className="profile-bank-field">
+            <span>ธนาคาร</span>
+            <input
+              className="form-control"
+              value={bankProfile.bankName}
+              onChange={(e) => updateBank("bankName", e.target.value)}
+              placeholder="เช่น SCB, KBANK"
+            />
+          </label>
+          <label className="profile-bank-field">
+            <span>เลขบัญชี</span>
+            <input
+              className="form-control"
+              value={bankProfile.bankAccount}
+              onChange={(e) => updateBank("bankAccount", e.target.value)}
+              placeholder="123-4-56789-0"
+            />
+          </label>
+          <label className="profile-bank-field">
+            <span>PromptPay</span>
+            <input
+              className="form-control"
+              value={bankProfile.promptpay}
+              onChange={(e) => updateBank("promptpay", e.target.value)}
+              placeholder="เบอร์โทร / เลขบัตร"
+            />
+          </label>
+        </div>
+
+        <div className="profile-bank-actions">
+          <button
+            type="button"
+            className="btn btn-success px-4"
+            onClick={handleSaveBank}
+            disabled={savingBank}
+          >
+            {savingBank ? "กำลังบันทึก..." : "บันทึกบัญชีธนาคาร"}
+          </button>
         </div>
       </section>
 
@@ -140,14 +327,111 @@ function Profile() {
               </button>
             );
           })}
+          <button
+            type="button"
+            className={`theme-tile ${selected === CUSTOM_THEME_ID ? "is-active" : ""}`}
+            onClick={() => handlePick(CUSTOM_THEME_ID)}
+            aria-pressed={selected === CUSTOM_THEME_ID}
+          >
+            <span
+              className="theme-tile-preview"
+              style={{
+                background: `linear-gradient(135deg, ${activeCustomTheme.accent} 0%, ${activeCustomTheme.accent2} 100%)`,
+              }}
+            >
+              <span className="theme-tile-dot" style={{ background: activeCustomTheme.accent }} />
+              <span className="theme-tile-dot" style={{ background: activeCustomTheme.accent2 }} />
+              {selected === CUSTOM_THEME_ID && (
+                <span className="theme-tile-check" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                </span>
+              )}
+            </span>
+            <span className="theme-tile-text">
+              <strong>Custom Theme</strong>
+              <small>กำหนดสีของแอปเอง</small>
+              {theme === CUSTOM_THEME_ID && (
+                <span className="theme-tile-current">ธีมปัจจุบัน</span>
+              )}
+            </span>
+          </button>
+        </div>
+
+        <div className="custom-theme-panel">
+          <div className="custom-theme-head">
+            <div>
+              <h3>ปรับธีมเอง</h3>
+              <p>เปลี่ยนสีแล้วดูผลทันที ก่อนกดบันทึก</p>
+            </div>
+            <button type="button" className="btn btn-sm btn-light border" onClick={resetCustom}>
+              รีเซ็ตสี
+            </button>
+          </div>
+
+          <div className="custom-color-grid">
+            {customFields.map((field) => (
+              <label key={field.key} className="custom-color-field">
+                <span>{field.label}</span>
+                <input
+                  type="color"
+                  value={activeCustomTheme[field.key]}
+                  onChange={(e) => updateCustom(field.key, e.target.value)}
+                />
+              </label>
+            ))}
+          </div>
+        </div>
+
+        <div className="custom-bg-panel">
+          <div className="custom-theme-head">
+            <div>
+              <h3>รูปพื้นหลัง</h3>
+              <p>อัปโหลดรูปเอง ระบบจะย่อขนาดก่อนบันทึก</p>
+            </div>
+            <div className="custom-bg-actions">
+              <button
+                type="button"
+                className="btn btn-sm btn-light border"
+                onClick={() => bgInputRef.current?.click()}
+              >
+                {activeBackgroundImage ? "เปลี่ยนรูป" : "อัปโหลดรูป"}
+              </button>
+              {activeBackgroundImage && (
+                <button
+                  type="button"
+                  className="btn btn-sm btn-outline-danger"
+                  onClick={() => setPreviewBackgroundImage("")}
+                >
+                  ลบรูป
+                </button>
+              )}
+            </div>
+          </div>
+
+          {activeBackgroundImage ? (
+            <button
+              type="button"
+              className="custom-bg-preview"
+              onClick={() => bgInputRef.current?.click()}
+              style={{ backgroundImage: `url("${activeBackgroundImage}")` }}
+              title="เปลี่ยนรูปพื้นหลัง"
+            />
+          ) : (
+            <button type="button" className="custom-bg-empty" onClick={() => bgInputRef.current?.click()}>
+              เลือกรูปพื้นหลัง
+            </button>
+          )}
+          <input ref={bgInputRef} type="file" accept="image/*" hidden onChange={handleBackgroundFile} />
         </div>
 
         {/* Save / Cancel bar — แสดงเมื่อมี preview ที่ต่างจาก current */}
         <div className={`theme-save-bar ${dirty ? "is-visible" : ""}`}>
           <span className="theme-save-bar-text">
             {dirty
-              ? "คุณกำลังพรีวิวธีมใหม่อยู่ — บันทึกเพื่อใช้ถาวร"
-              : "เลือกธีมที่ต้องการแล้วกดบันทึก"}
+              ? "คุณกำลังพรีวิวธีมหรือพื้นหลังใหม่อยู่ — บันทึกเพื่อใช้ถาวร"
+              : "เลือกธีม / ปรับสี / เลือกรูปพื้นหลัง แล้วกดบันทึก"}
           </span>
           <div className="theme-save-bar-actions">
             <button
