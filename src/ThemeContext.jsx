@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 import { db } from "./firebase";
 import { useAuth } from "./AuthContext";
@@ -11,21 +11,23 @@ export const THEMES = [
   { id: "midnight", name: "Midnight", desc: "โหมดมืดสบายตายามค่ำคืน", swatch: ["#0f1726", "#22d3ee"] },
 ];
 
-const STORAGE_KEY = "app.theme";
+const CACHE_KEY = "app.theme";
 const DEFAULT_THEME = "emerald";
 const isValidTheme = (id) => THEMES.some((t) => t.id === id);
 
-const readLocal = () => {
+// localStorage ใช้แค่เป็น "cache" เพื่อไม่ให้หน้ากระพริบตอน reload
+// แหล่งความจริงของธีมคือ DB เท่านั้น
+const readCache = () => {
   try {
-    const v = localStorage.getItem(STORAGE_KEY);
+    const v = localStorage.getItem(CACHE_KEY);
     return isValidTheme(v) ? v : null;
   } catch {
     return null;
   }
 };
-const writeLocal = (id) => {
+const writeCache = (id) => {
   try {
-    localStorage.setItem(STORAGE_KEY, id);
+    localStorage.setItem(CACHE_KEY, id);
   } catch {
     /* ignore */
   }
@@ -33,33 +35,34 @@ const writeLocal = (id) => {
 
 const ThemeContext = createContext({
   theme: DEFAULT_THEME,
-  setTheme: () => {},
+  preview: null,
+  setPreview: () => {},
+  saveTheme: async () => {},
   themes: THEMES,
   syncing: false,
 });
 
 export function ThemeProvider({ children }) {
   const { user } = useAuth();
-  const [theme, setThemeState] = useState(() => readLocal() || DEFAULT_THEME);
+  // theme = ค่าที่ commit แล้ว (มาจาก DB หรือ default)
+  const [theme, setThemeState] = useState(() => readCache() || DEFAULT_THEME);
+  // preview = ค่าที่ผู้ใช้กำลังเลือกอยู่แต่ยังไม่บันทึก (null = ไม่มี preview)
+  const [preview, setPreview] = useState(null);
   const [syncing, setSyncing] = useState(false);
 
-  // ค่าธีมล่าสุดที่ "ตรงกับ DB" (ไม่ต้องเขียนกลับ) — สำหรับ user นี้
-  const inSyncWithDbRef = useRef({ userId: null, theme: null });
+  // ธีมที่แสดงผลจริง: ถ้ามี preview ก็ใช้ preview ก่อน
+  const effective = preview && isValidTheme(preview) ? preview : theme;
 
-  // Reflect theme → <html data-theme> + localStorage cache
+  // Reflect to <html data-theme>
   useEffect(() => {
-    document.documentElement.setAttribute("data-theme", theme);
-    writeLocal(theme);
-  }, [theme]);
+    document.documentElement.setAttribute("data-theme", effective);
+  }, [effective]);
 
-  // === STEP 1: หลัง login → เช็ค DB ก่อนเสมอ ถ้ามีค่าธีมใช้จาก DB ===
+  // เช็ค DB ก่อนเสมอเมื่อ user เปลี่ยน — ถ้ามีค่าธีมก็ใช้จาก DB
   useEffect(() => {
     let cancelled = false;
     const uid = user?.userId;
-    if (!uid) {
-      inSyncWithDbRef.current = { userId: null, theme: null };
-      return;
-    }
+    if (!uid) return;
 
     (async () => {
       try {
@@ -70,14 +73,12 @@ export function ThemeProvider({ children }) {
         const remote = snap.exists() ? snap.data()?.theme : null;
 
         if (remote && isValidTheme(remote)) {
-          // DB มีค่า → ใช้จาก DB
-          inSyncWithDbRef.current = { userId: uid, theme: remote };
           setThemeState(remote);
-        } else {
-          // DB ไม่มี → อัปโหลดค่า local ปัจจุบันขึ้นไป (migrate ครั้งเดียว)
-          await setDoc(doc(db, "users", uid), { theme }, { merge: true });
-          inSyncWithDbRef.current = { userId: uid, theme };
+          writeCache(remote);
         }
+        // ถ้า DB ไม่มี → ไม่ทำอะไร, ไม่ migrate ขึ้น (รอ user กดบันทึก)
+        // ทิ้ง preview ใดๆ ที่อาจค้างอยู่
+        setPreview(null);
       } catch (err) {
         console.error("theme sync failed", err);
       } finally {
@@ -88,39 +89,35 @@ export function ThemeProvider({ children }) {
     return () => {
       cancelled = true;
     };
-    // เช็ค DB ใหม่ทุกครั้งที่ user เปลี่ยน (login/logout/สลับบัญชี)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.userId]);
 
-  // === STEP 2: เมื่อ user เปลี่ยนธีม → เขียนกลับ DB (ข้าม no-op write) ===
-  useEffect(() => {
-    const uid = user?.userId;
-    if (!uid) return;
+  // บันทึกธีม → เขียน DB + commit ค่าใหม่ + เคลียร์ preview
+  const saveTheme = useCallback(
+    async (idArg) => {
+      const id = idArg ?? preview ?? theme;
+      if (!isValidTheme(id)) return false;
 
-    const synced = inSyncWithDbRef.current;
-    // ยังโหลด DB ไม่เสร็จ → ยังไม่เขียน (กัน race overwrite)
-    if (synced.userId !== uid) return;
-    // ค่าใน DB ตรงกับค่าปัจจุบันอยู่แล้ว → ไม่ต้องเขียน
-    if (synced.theme === theme) return;
-
-    (async () => {
-      try {
-        await setDoc(doc(db, "users", uid), { theme }, { merge: true });
-        inSyncWithDbRef.current = { userId: uid, theme };
-      } catch (err) {
-        console.error("theme persist failed", err);
+      if (user?.userId) {
+        await setDoc(doc(db, "users", user.userId), { theme: id }, { merge: true });
       }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [theme, user?.userId]);
-
-  const setTheme = (next) => {
-    if (isValidTheme(next)) setThemeState(next);
-  };
+      setThemeState(id);
+      writeCache(id);
+      setPreview(null);
+      return true;
+    },
+    [preview, theme, user?.userId]
+  );
 
   const value = useMemo(
-    () => ({ theme, setTheme, themes: THEMES, syncing }),
-    [theme, syncing]
+    () => ({
+      theme,
+      preview,
+      setPreview,
+      saveTheme,
+      themes: THEMES,
+      syncing,
+    }),
+    [theme, preview, saveTheme, syncing]
   );
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;

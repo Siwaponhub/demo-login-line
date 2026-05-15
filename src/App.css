@@ -1573,6 +1573,65 @@
   border-width: 2px;
 }
 
+.theme-sync-pill.is-warn {
+  background: rgba(245, 159, 0, 0.18);
+  color: #d97706;
+}
+
+.theme-tile-current {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+/* Save bar at the bottom of theme picker */
+
+.theme-save-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+  padding: 12px 16px;
+  border: 1px dashed var(--border);
+  border-radius: 14px;
+  background: var(--surface-mute);
+  opacity: 0.7;
+  transition: border-color 200ms ease, background 200ms ease, opacity 200ms ease;
+}
+
+.theme-save-bar.is-visible {
+  border-style: solid;
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  opacity: 1;
+}
+
+.theme-save-bar-text {
+  flex: 1 1 200px;
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.theme-save-bar.is-visible .theme-save-bar-text {
+  color: var(--accent-strong);
+}
+
+.theme-save-bar-actions {
+  display: inline-flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
 .theme-picker-desc {
   margin: 0;
   color: var(--text-muted);
