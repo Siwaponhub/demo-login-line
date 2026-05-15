@@ -4,41 +4,15 @@ import { db } from "./firebase";
 import { useAuth } from "./AuthContext";
 
 export const THEMES = [
-  {
-    id: "emerald",
-    name: "LINE Emerald",
-    desc: "เขียวสดใส โทนหลักของ LINE",
-    swatch: ["#06c755", "#2374ab"],
-  },
-  {
-    id: "ocean",
-    name: "Ocean Breeze",
-    desc: "ฟ้าเย็นสบายตา เน้นมืออาชีพ",
-    swatch: ["#2374ab", "#1098ad"],
-  },
-  {
-    id: "sunset",
-    name: "Sunset Glow",
-    desc: "ส้มอุ่นอบอุ่น เพิ่มพลังบวก",
-    swatch: ["#f59f00", "#e8590c"],
-  },
-  {
-    id: "violet",
-    name: "Violet Dream",
-    desc: "ม่วงทันสมัย ดูสร้างสรรค์",
-    swatch: ["#845ef7", "#5f3dc4"],
-  },
-  {
-    id: "midnight",
-    name: "Midnight",
-    desc: "โหมดมืดสบายตายามค่ำคืน",
-    swatch: ["#0f1726", "#22d3ee"],
-  },
+  { id: "emerald", name: "LINE Emerald", desc: "เขียวสดใส โทนหลักของ LINE", swatch: ["#06c755", "#2374ab"] },
+  { id: "ocean", name: "Ocean Breeze", desc: "ฟ้าเย็นสบายตา เน้นมืออาชีพ", swatch: ["#2374ab", "#1098ad"] },
+  { id: "sunset", name: "Sunset Glow", desc: "ส้มอุ่นอบอุ่น เพิ่มพลังบวก", swatch: ["#f59f00", "#e8590c"] },
+  { id: "violet", name: "Violet Dream", desc: "ม่วงทันสมัย ดูสร้างสรรค์", swatch: ["#845ef7", "#5f3dc4"] },
+  { id: "midnight", name: "Midnight", desc: "โหมดมืดสบายตายามค่ำคืน", swatch: ["#0f1726", "#22d3ee"] },
 ];
 
 const STORAGE_KEY = "app.theme";
 const DEFAULT_THEME = "emerald";
-
 const isValidTheme = (id) => THEMES.some((t) => t.id === id);
 
 const readLocal = () => {
@@ -49,7 +23,6 @@ const readLocal = () => {
     return null;
   }
 };
-
 const writeLocal = (id) => {
   try {
     localStorage.setItem(STORAGE_KEY, id);
@@ -69,80 +42,80 @@ export function ThemeProvider({ children }) {
   const { user } = useAuth();
   const [theme, setThemeState] = useState(() => readLocal() || DEFAULT_THEME);
   const [syncing, setSyncing] = useState(false);
-  // tracks whether the next theme change should be persisted to Firestore
-  // (suppress when the change came FROM Firestore on login)
-  const remoteHydratedFor = useRef(null);
 
-  // Reflect theme onto <html> + localStorage cache
+  // ค่าธีมล่าสุดที่ "ตรงกับ DB" (ไม่ต้องเขียนกลับ) — สำหรับ user นี้
+  const inSyncWithDbRef = useRef({ userId: null, theme: null });
+
+  // Reflect theme → <html data-theme> + localStorage cache
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
     writeLocal(theme);
   }, [theme]);
 
-  // When the logged-in user changes, pull their saved theme from Firestore.
-  // Falls back to whatever is currently set if there's no remote preference yet.
+  // === STEP 1: หลัง login → เช็ค DB ก่อนเสมอ ถ้ามีค่าธีมใช้จาก DB ===
   useEffect(() => {
     let cancelled = false;
-    const sync = async () => {
-      if (!user?.userId) {
-        remoteHydratedFor.current = null;
-        return;
-      }
+    const uid = user?.userId;
+    if (!uid) {
+      inSyncWithDbRef.current = { userId: null, theme: null };
+      return;
+    }
+
+    (async () => {
       try {
         setSyncing(true);
-        const snap = await getDoc(doc(db, "users", user.userId));
+        const snap = await getDoc(doc(db, "users", uid));
         if (cancelled) return;
+
         const remote = snap.exists() ? snap.data()?.theme : null;
+
         if (remote && isValidTheme(remote)) {
-          remoteHydratedFor.current = user.userId;
+          // DB มีค่า → ใช้จาก DB
+          inSyncWithDbRef.current = { userId: uid, theme: remote };
           setThemeState(remote);
         } else {
-          // No remote pref yet — push the current local choice up so the
-          // user keeps using it on other devices.
-          remoteHydratedFor.current = user.userId;
-          await setDoc(
-            doc(db, "users", user.userId),
-            { theme },
-            { merge: true }
-          );
+          // DB ไม่มี → อัปโหลดค่า local ปัจจุบันขึ้นไป (migrate ครั้งเดียว)
+          await setDoc(doc(db, "users", uid), { theme }, { merge: true });
+          inSyncWithDbRef.current = { userId: uid, theme };
         }
       } catch (err) {
         console.error("theme sync failed", err);
       } finally {
         if (!cancelled) setSyncing(false);
       }
-    };
-    sync();
+    })();
+
     return () => {
       cancelled = true;
     };
-    // We intentionally only re-run when the user identity changes.
+    // เช็ค DB ใหม่ทุกครั้งที่ user เปลี่ยน (login/logout/สลับบัญชี)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.userId]);
 
-  // Persist the user's choice up to Firestore whenever theme changes after hydration.
+  // === STEP 2: เมื่อ user เปลี่ยนธีม → เขียนกลับ DB (ข้าม no-op write) ===
   useEffect(() => {
-    if (!user?.userId) return;
-    // Skip the first change that comes from remote hydration.
-    if (remoteHydratedFor.current !== user.userId) return;
-    const persist = async () => {
+    const uid = user?.userId;
+    if (!uid) return;
+
+    const synced = inSyncWithDbRef.current;
+    // ยังโหลด DB ไม่เสร็จ → ยังไม่เขียน (กัน race overwrite)
+    if (synced.userId !== uid) return;
+    // ค่าใน DB ตรงกับค่าปัจจุบันอยู่แล้ว → ไม่ต้องเขียน
+    if (synced.theme === theme) return;
+
+    (async () => {
       try {
-        await setDoc(
-          doc(db, "users", user.userId),
-          { theme },
-          { merge: true }
-        );
+        await setDoc(doc(db, "users", uid), { theme }, { merge: true });
+        inSyncWithDbRef.current = { userId: uid, theme };
       } catch (err) {
         console.error("theme persist failed", err);
       }
-    };
-    persist();
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [theme, user?.userId]);
 
   const setTheme = (next) => {
-    if (!isValidTheme(next)) return;
-    setThemeState(next);
+    if (isValidTheme(next)) setThemeState(next);
   };
 
   const value = useMemo(
