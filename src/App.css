@@ -1543,11 +1543,34 @@
 }
 
 .theme-picker-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
   margin: 10px 0 4px;
   font-size: clamp(1.25rem, 3vw, 1.6rem);
   font-weight: 850;
   letter-spacing: -0.005em;
   color: var(--text);
+}
+
+.theme-sync-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.theme-sync-pill .spinner-border {
+  width: 12px;
+  height: 12px;
+  border-width: 2px;
 }
 
 .theme-picker-desc {
