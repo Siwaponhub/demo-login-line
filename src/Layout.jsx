@@ -17,6 +17,7 @@ function Layout({ children }) {
               <small>จัดกลุ่มและวันว่าง</small>
             </span>
           </Link>
+
           <Link to="/profile" className="profile-chip">
             <img src={user.picture} alt={user.name} />
             <span>{user.name}</span>

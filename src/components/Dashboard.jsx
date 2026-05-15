@@ -5,6 +5,7 @@ import Swal from "sweetalert2";
 import { db } from "../firebase";
 import { useAuth } from "../AuthContext";
 import BackHomeButtons from "./BackHomeButtons";
+import GroupAvatar from "./GroupAvatar";
 
 function Dashboard() {
   const { user } = useAuth();
@@ -88,9 +89,14 @@ function Dashboard() {
         <div className="section-grid">
           {groups.map((group) => (
             <article key={group.id} className="group-card">
-              <div className="d-flex justify-content-between gap-3">
-                <div>
-                  <h2 className="h5 fw-bold mb-1">{group.name}</h2>
+              <div className="d-flex align-items-start gap-3">
+                <GroupAvatar
+                  name={group.name}
+                  photoURL={group.photoURL}
+                  size={56}
+                />
+                <div className="flex-fill min-w-0">
+                  <h2 className="h5 fw-bold mb-1 text-truncate">{group.name}</h2>
                   <p className="text-muted mb-0">{group.members?.length || 0} สมาชิก</p>
                 </div>
                 {user?.userId === group.ownerId && (

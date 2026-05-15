@@ -4,6 +4,7 @@ import { collection, getDocs } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../AuthContext";
 import BackHomeButtons from "./BackHomeButtons";
+import GroupAvatar from "./GroupAvatar";
 
 function CalendarGroups() {
   const { user } = useAuth();
@@ -57,8 +58,8 @@ function CalendarGroups() {
       ) : (
         <div className="section-grid">
           {groups.map((group) => (
-            <Link key={group.id} to={`/calendar/${group.id}`} className="menu-card">
-              <span className="tile-icon alt">C</span>
+            <Link key={group.id} to={`/group/${group.id}?tab=calendar`} className="menu-card">
+              <GroupAvatar name={group.name} photoURL={group.photoURL} size={42} />
               <span>
                 <h2>{group.name}</h2>
                 <p>{group.members?.length || 0} สมาชิก</p>

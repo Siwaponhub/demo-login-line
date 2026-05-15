@@ -16,9 +16,19 @@ const emptyBill = {
 
 const money = (amount) =>
   Number(amount || 0).toLocaleString("th-TH", {
-    minimumFractionDigits: 2,
+    minimumFractionDigits: 0,
     maximumFractionDigits: 2,
   });
+
+// Status helper for participant payment state
+function paymentStatus(share, paid) {
+  const s = Number(share || 0);
+  const p = Number(paid || 0);
+  if (p <= 0) return { id: "unpaid", label: "ยังไม่จ่าย", remaining: s };
+  if (Math.abs(p - s) < 0.01) return { id: "paid", label: "จ่ายครบ", remaining: 0 };
+  if (p < s) return { id: "partial", label: `ค้าง ${money(s - p)}`, remaining: s - p };
+  return { id: "over", label: `เกิน ${money(p - s)}`, remaining: s - p };
+}
 
 function BillManager() {
   const { id } = useParams();
@@ -31,6 +41,8 @@ function BillManager() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [activeBillId, setActiveBillId] = useState(null);
+  const [paidDrafts, setPaidDrafts] = useState({}); // billId -> { userId: paidValue }
+  const [savingPayments, setSavingPayments] = useState(false);
 
   const isGroupRoute = Boolean(id);
   const members = useMemo(() => group?.members || [], [group]);
@@ -45,7 +57,6 @@ function BillManager() {
       setActiveBillId(null);
       return;
     }
-
     if (!bills.some((bill) => bill.id === activeBillId)) {
       setActiveBillId(bills[0].id);
     }
@@ -58,7 +69,6 @@ function BillManager() {
 
   const fetchGroups = useCallback(async () => {
     if (!user) return;
-
     try {
       setLoading(true);
       const snapshot = await getDocs(collection(db, "groups"));
@@ -117,31 +127,33 @@ function BillManager() {
     [form.participants]
   );
 
+  // Net summary: sum (share - paid) per debtor->payer pair
   const summaryByPerson = useMemo(() => {
     const map = new Map();
-
     bills.forEach((bill) => {
-      const payer = members.find((member) => member.userId === bill.payerId);
+      const payer = members.find((m) => m.userId === bill.payerId);
       const payerName = payer?.name || bill.payerName || "ผู้จ่าย";
-
-      bill.participants?.forEach((participant) => {
-        if (participant.userId === bill.payerId) return;
-        const share = Number(participant.share || 0);
-        if (share <= 0) return;
-
-        const key = `${participant.name}->${payerName}`;
+      bill.participants?.forEach((p) => {
+        if (p.userId === bill.payerId) return;
+        const remaining = Number(p.share || 0) - Number(p.paid || 0);
+        if (Math.abs(remaining) < 0.01) return;
+        const key = `${p.name}->${payerName}`;
         const current = map.get(key) || {
-          debtorName: participant.name,
+          debtorName: p.name,
           payerName,
           amount: 0,
         };
-        current.amount += share;
+        current.amount += remaining;
         map.set(key, current);
       });
     });
-
-    return Array.from(map.values());
+    return Array.from(map.values()).filter((row) => Math.abs(row.amount) >= 0.01);
   }, [bills, members]);
+
+  const totalRemaining = useMemo(
+    () => summaryByPerson.reduce((sum, row) => sum + Math.max(0, row.amount), 0),
+    [summaryByPerson]
+  );
 
   const updateForm = (field, value) => {
     setForm((current) => ({ ...current, [field]: value }));
@@ -167,11 +179,11 @@ function BillManager() {
 
   const toggleParticipant = (member) => {
     setForm((current) => {
-      const exists = current.participants.some((participant) => participant.userId === member.userId);
+      const exists = current.participants.some((p) => p.userId === member.userId);
       return {
         ...current,
         participants: exists
-          ? current.participants.filter((participant) => participant.userId !== member.userId)
+          ? current.participants.filter((p) => p.userId !== member.userId)
           : [
               ...current.participants,
               {
@@ -180,6 +192,7 @@ function BillManager() {
                 email: member.email || "",
                 picture: member.picture || "",
                 share: 0,
+                paid: 0,
               },
             ],
       };
@@ -189,13 +202,17 @@ function BillManager() {
   const selectAllMembers = () => {
     setForm((current) => ({
       ...current,
-      participants: members.map((member) => ({
-        userId: member.userId,
-        name: member.name,
-        email: member.email || "",
-        picture: member.picture || "",
-        share: 0,
-      })),
+      participants: members.map((m) => {
+        const existing = current.participants.find((p) => p.userId === m.userId);
+        return {
+          userId: m.userId,
+          name: m.name,
+          email: m.email || "",
+          picture: m.picture || "",
+          share: existing?.share || 0,
+          paid: existing?.paid || 0,
+        };
+      }),
     }));
   };
 
@@ -206,10 +223,8 @@ function BillManager() {
   const updateShare = (userId, value) => {
     setForm((current) => ({
       ...current,
-      participants: current.participants.map((participant) =>
-        participant.userId === userId
-          ? { ...participant, share: Number(value) || 0 }
-          : participant
+      participants: current.participants.map((p) =>
+        p.userId === userId ? { ...p, share: Number(value) || 0 } : p
       ),
     }));
   };
@@ -220,23 +235,20 @@ function BillManager() {
       Swal.fire("ยังหารไม่ได้", "กรอกยอดรวมและเลือกสมาชิกก่อน", "info");
       return;
     }
-
     const perPerson = Number((amount / form.participants.length).toFixed(2));
     const roundedTotal = perPerson * form.participants.length;
     const diff = Number((amount - roundedTotal).toFixed(2));
-
     setForm((current) => ({
       ...current,
-      participants: current.participants.map((participant, index) => ({
-        ...participant,
-        share: Number((perPerson + (index === 0 ? diff : 0)).toFixed(2)),
+      participants: current.participants.map((p, i) => ({
+        ...p,
+        share: Number((perPerson + (i === 0 ? diff : 0)).toFixed(2)),
       })),
     }));
   };
 
   const handleSubmit = async (event) => {
     event.preventDefault();
-
     const amount = Number(form.amount || 0);
     if (!form.title.trim() || amount <= 0 || !form.payerId || form.participants.length === 0) {
       Swal.fire("ข้อมูลไม่ครบ", "กรอกชื่อบิล ยอดรวม ผู้จ่าย และสมาชิกที่ร่วมบิล", "info");
@@ -248,7 +260,7 @@ function BillManager() {
       const result = await Swal.fire({
         icon: "warning",
         title: "ยอดรวมรายคนไม่ตรงกับยอดบิล",
-        text: `ยอดรายคนรวม ${money(shareTotal)} บาท แต่ยอดบิลคือ ${money(amount)} บาท`,
+        text: `ยอดรายคนรวม ${money(shareTotal)} แต่ยอดบิลคือ ${money(amount)}`,
         showCancelButton: true,
         confirmButtonText: "บันทึกต่อ",
         cancelButtonText: "กลับไปแก้",
@@ -256,28 +268,35 @@ function BillManager() {
       if (!result.isConfirmed) return;
     }
 
-    const payer = members.find((member) => member.userId === form.payerId);
+    const payer = members.find((m) => m.userId === form.payerId);
+    const participantsWithPaid = form.participants.map((p) => ({
+      ...p,
+      paid: Number(p.paid) || 0,
+    }));
+
     const payload = {
       title: form.title.trim(),
       amount,
       payerId: form.payerId,
       payerName: payer?.name || "",
-      participants: form.participants,
+      participants: participantsWithPaid,
       updatedBy: user.userId,
     };
 
     try {
       if (editingId) {
         await updateBill(id, editingId, payload);
-        Swal.fire("สำเร็จ", "แก้ไขบิลแล้ว", "success");
-      } else {
-        await createBill(id, {
-          ...payload,
-          createdBy: user.userId,
+        Swal.fire({
+          toast: true, position: "top", icon: "success",
+          title: "แก้ไขบิลแล้ว", showConfirmButton: false, timer: 1400,
         });
-        Swal.fire("สำเร็จ", "สร้างบิลแล้ว", "success");
+      } else {
+        await createBill(id, { ...payload, createdBy: user.userId });
+        Swal.fire({
+          toast: true, position: "top", icon: "success",
+          title: "สร้างบิลแล้ว", showConfirmButton: false, timer: 1400,
+        });
       }
-
       resetForm();
       const nextBills = await getBills(id);
       setBills(nextBills);
@@ -295,7 +314,10 @@ function BillManager() {
       title: bill.title || "",
       amount: bill.amount || "",
       payerId: bill.payerId || user?.userId || "",
-      participants: bill.participants || [],
+      participants: (bill.participants || []).map((p) => ({
+        ...p,
+        paid: Number(p.paid) || 0,
+      })),
     });
     setShowForm(true);
   };
@@ -311,13 +333,97 @@ function BillManager() {
       confirmButtonColor: "#dc3545",
     });
     if (!result.isConfirmed) return;
-
     await deleteBill(id, billId);
     const nextBills = bills.filter((bill) => bill.id !== billId);
     setBills(nextBills);
     if (activeBillId === billId) setActiveBillId(nextBills[0]?.id || null);
-    Swal.fire("สำเร็จ", "ลบบิลแล้ว", "success");
+    Swal.fire({
+      toast: true, position: "top", icon: "success",
+      title: "ลบบิลแล้ว", showConfirmButton: false, timer: 1400,
+    });
   };
+
+  // === Payment editing ===
+
+  const draftFor = (bill, userId) => {
+    const drafts = paidDrafts[bill.id];
+    if (drafts && Object.prototype.hasOwnProperty.call(drafts, userId)) {
+      return drafts[userId];
+    }
+    const p = bill.participants?.find((x) => x.userId === userId);
+    return Number(p?.paid || 0);
+  };
+
+  const setDraft = (billId, userId, value) => {
+    setPaidDrafts((prev) => ({
+      ...prev,
+      [billId]: { ...(prev[billId] || {}), [userId]: value },
+    }));
+  };
+
+  const markPaidFull = (bill, p) => {
+    setDraft(bill.id, p.userId, Number(p.share || 0));
+  };
+
+  const markPaidZero = (bill, p) => {
+    setDraft(bill.id, p.userId, 0);
+  };
+
+  const hasUnsavedPayments = (bill) => {
+    const drafts = paidDrafts[bill.id];
+    if (!drafts) return false;
+    return Object.entries(drafts).some(([uid, v]) => {
+      const p = bill.participants?.find((x) => x.userId === uid);
+      return Number(p?.paid || 0) !== Number(v || 0);
+    });
+  };
+
+  const savePayments = async (bill) => {
+    const drafts = paidDrafts[bill.id] || {};
+    const updatedParticipants = (bill.participants || []).map((p) => ({
+      ...p,
+      paid: Object.prototype.hasOwnProperty.call(drafts, p.userId)
+        ? Number(drafts[p.userId]) || 0
+        : Number(p.paid) || 0,
+    }));
+    try {
+      setSavingPayments(true);
+      await updateBill(id, bill.id, {
+        ...bill,
+        participants: updatedParticipants,
+        updatedBy: user.userId,
+      });
+      setBills((prev) =>
+        prev.map((b) =>
+          b.id === bill.id ? { ...b, participants: updatedParticipants } : b
+        )
+      );
+      setPaidDrafts((prev) => {
+        const next = { ...prev };
+        delete next[bill.id];
+        return next;
+      });
+      Swal.fire({
+        toast: true, position: "top", icon: "success",
+        title: "บันทึกการชำระแล้ว", showConfirmButton: false, timer: 1400,
+      });
+    } catch (err) {
+      console.error(err);
+      Swal.fire("เกิดข้อผิดพลาด", "บันทึกการชำระไม่สำเร็จ", "error");
+    } finally {
+      setSavingPayments(false);
+    }
+  };
+
+  const discardPayments = (billId) => {
+    setPaidDrafts((prev) => {
+      const next = { ...prev };
+      delete next[billId];
+      return next;
+    });
+  };
+
+  // === Render group picker (no group route) ===
 
   if (!isGroupRoute) {
     return (
@@ -336,7 +442,7 @@ function BillManager() {
         ) : (
           <div className="section-grid">
             {groups.map((g) => (
-              <Link key={g.id} to={`/group/${g.id}/bills`} className="menu-card">
+              <Link key={g.id} to={`/group/${g.id}?tab=bills`} className="menu-card">
                 <span className="tile-icon alt">฿</span>
                 <span>
                   <h2>{g.name}</h2>
@@ -346,7 +452,6 @@ function BillManager() {
             ))}
           </div>
         )}
-
         <BackHomeButtons />
       </>
     );
@@ -355,55 +460,77 @@ function BillManager() {
   if (loading) return <div className="soft-card empty-state">กำลังโหลดค่าใช้จ่าย...</div>;
   if (!group) return <div className="soft-card empty-state">ไม่พบกลุ่มนี้</div>;
 
+  // active bill payment summary
+  const activeBillSummary = (() => {
+    if (!activeBill) return null;
+    const drafts = paidDrafts[activeBill.id] || {};
+    const totalShare = (activeBill.participants || []).reduce(
+      (sum, p) => sum + Number(p.share || 0),
+      0
+    );
+    const totalPaid = (activeBill.participants || []).reduce((sum, p) => {
+      const v = Object.prototype.hasOwnProperty.call(drafts, p.userId)
+        ? Number(drafts[p.userId]) || 0
+        : Number(p.paid) || 0;
+      return sum + v;
+    }, 0);
+    return { totalShare, totalPaid, remaining: totalShare - totalPaid };
+  })();
+
   return (
     <>
-      <section className="page-header">
+      <section className="page-header page-header-tight">
         <div>
-          <h1 className="page-title">ค่าใช้จ่ายทริป</h1>
+          <h1 className="page-title">ค่าใช้จ่าย</h1>
           <p className="page-subtitle">{group.name}</p>
         </div>
-        <button className="btn btn-success px-4 py-3" onClick={openCreateForm}>
-          เพิ่มบิล
+        <button className="btn btn-success px-4" onClick={openCreateForm}>
+          + เพิ่มบิล
         </button>
       </section>
 
-      <section className="expense-overview">
-        <div className="soft-card p-4">
-          <p className="text-muted mb-1">ยอดรวมทริป</p>
-          <strong>{money(totalTripAmount)} บาท</strong>
+      {/* Compact stat strip — ทุกอย่างในแถวเดียว ไม่มีหน่วย */}
+      <section className="stat-strip">
+        <div className="stat-strip-item">
+          <span className="stat-strip-label">ยอดรวม</span>
+          <strong className="stat-strip-value">{money(totalTripAmount)}</strong>
         </div>
-        <div className="soft-card p-4">
-          <p className="text-muted mb-1">จำนวนบิล</p>
-          <strong>{bills.length} บิล</strong>
+        <span className="stat-strip-divider" aria-hidden="true" />
+        <div className="stat-strip-item">
+          <span className="stat-strip-label">บิล</span>
+          <strong className="stat-strip-value">{bills.length}</strong>
         </div>
-        <div className="soft-card p-4">
-          <p className="text-muted mb-1">รายการที่ต้องชำระคืน</p>
-          <strong>{summaryByPerson.length} รายการ</strong>
+        <span className="stat-strip-divider" aria-hidden="true" />
+        <div className="stat-strip-item">
+          <span className="stat-strip-label">รอจ่าย</span>
+          <strong className={`stat-strip-value ${totalRemaining > 0 ? "is-warn" : "is-good"}`}>
+            {money(totalRemaining)}
+          </strong>
         </div>
       </section>
 
       {showForm && (
-        <form className="soft-card p-4 mt-3" onSubmit={handleSubmit}>
-          <div className="d-flex justify-content-between align-items-start gap-3">
-            <div>
-              <h2 className="h4 fw-bold mb-1">{editingId ? "แก้ไขบิล" : "เพิ่มบิล"}</h2>
-              <p className="text-muted mb-0">เลือกคนออกเงินและสมาชิกที่ร่วมบิลนี้</p>
+        <form className="soft-card p-3 p-md-4 mt-3" onSubmit={handleSubmit}>
+          <div className="d-flex justify-content-between align-items-start gap-3 mb-3">
+            <div className="min-w-0">
+              <h2 className="h5 fw-bold mb-1">{editingId ? "แก้ไขบิล" : "เพิ่มบิล"}</h2>
+              <p className="text-muted mb-0 small">เลือกคนออกเงินและสมาชิกที่ร่วมบิลนี้</p>
             </div>
-            <button className="btn btn-light border" type="button" onClick={resetForm}>
+            <button className="btn btn-light border btn-sm" type="button" onClick={resetForm}>
               ปิด
             </button>
           </div>
 
-          <label className="form-label fw-bold mt-3">ชื่อบิล</label>
+          <label className="form-label fw-bold">ชื่อบิล</label>
           <input
             className="form-control"
             value={form.title}
-            onChange={(event) => updateForm("title", event.target.value)}
+            onChange={(e) => updateForm("title", e.target.value)}
             placeholder="เช่น ค่าที่พัก คืนแรก"
           />
 
-          <div className="row g-3 mt-1">
-            <div className="col-12 col-md-6">
+          <div className="row g-2 g-md-3 mt-1">
+            <div className="col-12 col-sm-6">
               <label className="form-label fw-bold">ยอดรวม</label>
               <input
                 type="number"
@@ -411,29 +538,27 @@ function BillManager() {
                 step="0.01"
                 className="form-control"
                 value={form.amount}
-                onChange={(event) => updateForm("amount", event.target.value)}
+                onChange={(e) => updateForm("amount", e.target.value)}
                 placeholder="0.00"
               />
             </div>
-            <div className="col-12 col-md-6">
+            <div className="col-12 col-sm-6">
               <label className="form-label fw-bold">คนออกเงิน</label>
               <select
                 className="form-control"
                 value={form.payerId}
-                onChange={(event) => updateForm("payerId", event.target.value)}
+                onChange={(e) => updateForm("payerId", e.target.value)}
               >
                 <option value="">เลือกผู้จ่าย</option>
-                {members.map((member) => (
-                  <option key={member.userId} value={member.userId}>
-                    {member.name}
-                  </option>
+                {members.map((m) => (
+                  <option key={m.userId} value={m.userId}>{m.name}</option>
                 ))}
               </select>
             </div>
           </div>
 
-          <div className="d-flex justify-content-between align-items-center gap-2 mt-4">
-            <h3 className="h5 fw-bold mb-0">สมาชิกที่ร่วมบิล</h3>
+          <div className="d-flex justify-content-between align-items-center gap-2 mt-3">
+            <h3 className="h6 fw-bold mb-0">สมาชิกที่ร่วมบิล</h3>
             <div className="d-flex gap-2">
               <button type="button" className="btn btn-sm btn-outline-success" onClick={selectAllMembers}>
                 ทุกคน
@@ -444,70 +569,77 @@ function BillManager() {
             </div>
           </div>
 
-          <div className="list-group mt-3">
-            {members.map((member) => (
-              <label key={member.userId} className="list-group-item d-flex align-items-center gap-3">
-                <input
-                  type="checkbox"
-                  className="form-check-input"
-                  checked={form.participants.some((participant) => participant.userId === member.userId)}
-                  onChange={() => toggleParticipant(member)}
-                />
-                <img
-                  src={member.picture || "https://via.placeholder.com/40"}
-                  alt={member.name}
-                  className="avatar"
-                />
-                <span className="fw-bold">{member.name}</span>
-              </label>
-            ))}
+          <div className="member-pick-list mt-2">
+            {members.map((member) => {
+              const checked = form.participants.some((p) => p.userId === member.userId);
+              return (
+                <label
+                  key={member.userId}
+                  className={`member-pick ${checked ? "is-on" : ""}`}
+                >
+                  <input
+                    type="checkbox"
+                    className="form-check-input"
+                    checked={checked}
+                    onChange={() => toggleParticipant(member)}
+                  />
+                  <img
+                    src={member.picture || "https://via.placeholder.com/40"}
+                    alt={member.name}
+                    className="avatar"
+                  />
+                  <span className="member-pick-name">{member.name}</span>
+                </label>
+              );
+            })}
           </div>
 
           {form.participants.length > 0 && (
-            <div className="mt-4">
+            <div className="mt-3">
               <div className="d-flex justify-content-between align-items-center gap-2">
-                <h3 className="h5 fw-bold mb-0">ยอดรายคน</h3>
+                <h3 className="h6 fw-bold mb-0">ยอดรายคน</h3>
                 <button type="button" className="btn btn-sm btn-outline-success" onClick={splitEqually}>
                   หารเท่ากัน
                 </button>
               </div>
 
-              <div className="d-grid gap-2 mt-3">
-                {form.participants.map((participant) => (
-                  <div key={participant.userId} className="input-group">
-                    <span className="input-group-text bg-white">
+              <div className="share-list mt-2">
+                {form.participants.map((p) => (
+                  <div key={p.userId} className="share-row">
+                    <div className="share-row-name">
                       <img
-                        src={participant.picture || "https://via.placeholder.com/30"}
-                        alt={participant.name}
-                        className="avatar me-2"
+                        src={p.picture || "https://via.placeholder.com/30"}
+                        alt={p.name}
+                        className="avatar"
                       />
-                      {participant.name}
-                    </span>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      className="form-control"
-                      value={participant.share}
-                      onChange={(event) => updateShare(participant.userId, event.target.value)}
-                    />
-                    <span className="input-group-text">บาท</span>
+                      <span>{p.name}</span>
+                    </div>
+                    <div className="share-row-input">
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        className="form-control"
+                        value={p.share}
+                        onChange={(e) => updateShare(p.userId, e.target.value)}
+                      />
+                    </div>
                   </div>
                 ))}
               </div>
 
-              <p className="text-muted mt-2 mb-0">
-                ยอดรายคนรวม {money(selectedTotal)} บาท
+              <p className="text-muted mt-2 mb-0 small">
+                รวม {money(selectedTotal)} / ยอดบิล {money(form.amount || 0)}
               </p>
             </div>
           )}
 
-          <div className="d-flex gap-2 mt-4">
-            <button className="btn btn-success flex-fill py-3" type="submit">
+          <div className="d-flex gap-2 mt-3">
+            <button className="btn btn-success flex-fill" type="submit">
               {editingId ? "บันทึกการแก้ไข" : "สร้างบิล"}
             </button>
             {editingId && (
-              <button className="btn btn-light border py-3" type="button" onClick={resetForm}>
+              <button className="btn btn-light border" type="button" onClick={resetForm}>
                 ยกเลิก
               </button>
             )}
@@ -516,63 +648,165 @@ function BillManager() {
       )}
 
       <section className="expense-layout mt-3">
-        <div className="soft-card p-4">
+        <div className="soft-card p-3 p-md-4">
           <div className="d-flex justify-content-between align-items-center gap-3 mb-3">
-            <h2 className="h4 fw-bold mb-0">รายการบิล</h2>
-            <span className="badge text-bg-light">{bills.length} บิล</span>
+            <h2 className="h5 fw-bold mb-0">รายการบิล</h2>
+            <span className="badge text-bg-light">{bills.length}</span>
           </div>
 
           {bills.length === 0 ? (
             <div className="empty-state">
-              <h3 className="h5 fw-bold">ยังไม่มีบิล</h3>
-              <p>กดเพิ่มบิลเพื่อเริ่มบันทึกค่าใช้จ่ายของทริปนี้</p>
+              <h3 className="h6 fw-bold">ยังไม่มีบิล</h3>
+              <p className="mb-0">กดเพิ่มบิลเพื่อเริ่มบันทึกค่าใช้จ่าย</p>
             </div>
           ) : (
             <>
               <div className="bill-switcher" aria-label="เลือกบิล">
-                {bills.map((bill) => (
-                  <button
-                    key={bill.id}
-                    type="button"
-                    className={`bill-tab ${activeBill?.id === bill.id ? "active" : ""}`}
-                    onClick={() => setActiveBillId(bill.id)}
-                  >
-                    <span>{bill.title}</span>
-                    <small>{money(bill.amount)} บาท</small>
-                  </button>
-                ))}
+                {bills.map((bill) => {
+                  const totalShare = (bill.participants || []).reduce(
+                    (s, p) => s + Number(p.share || 0), 0
+                  );
+                  const totalPaid = (bill.participants || []).reduce(
+                    (s, p) => s + Number(p.paid || 0), 0
+                  );
+                  const isSettled = totalShare > 0 && Math.abs(totalShare - totalPaid) < 0.01;
+                  return (
+                    <button
+                      key={bill.id}
+                      type="button"
+                      className={`bill-tab ${activeBill?.id === bill.id ? "active" : ""}`}
+                      onClick={() => setActiveBillId(bill.id)}
+                    >
+                      <span>{bill.title}</span>
+                      <small className="d-flex align-items-center gap-1">
+                        {money(bill.amount)}
+                        {isSettled && <span className="bill-tab-tick" aria-label="จ่ายครบ">✓</span>}
+                      </small>
+                    </button>
+                  );
+                })}
               </div>
 
               {activeBill && (
                 <article className="bill-card">
                   <div className="bill-card-header">
-                    <div>
+                    <div className="min-w-0">
                       <h3>{activeBill.title}</h3>
                       <p>ออกโดย {activeBill.payerName || "ผู้จ่าย"}</p>
                     </div>
-                    <strong>{money(activeBill.amount)} บาท</strong>
+                    <strong>{money(activeBill.amount)}</strong>
                   </div>
 
                   <div className="bill-participants">
                     <div className="bill-section-title">
-                      <span>รายละเอียดสมาชิกในบิล</span>
+                      <span>ติดตามการชำระ</span>
                       <small>{activeBill.participants?.length || 0} คน</small>
                     </div>
 
-                    {(activeBill.participants || []).map((participant) => (
-                      <div key={participant.userId} className="bill-participant-row">
-                        <span className="d-flex align-items-center gap-2">
-                          <img
-                            src={participant.picture || "https://via.placeholder.com/30"}
-                            alt={participant.name}
-                            className="avatar"
-                          />
-                          <span>{participant.name}</span>
-                        </span>
-                        <strong>{money(participant.share)} บาท</strong>
-                      </div>
-                    ))}
+                    {(activeBill.participants || []).map((p) => {
+                      const draftPaid = draftFor(activeBill, p.userId);
+                      const status = paymentStatus(p.share, draftPaid);
+                      const isPayer = p.userId === activeBill.payerId;
+                      return (
+                        <div
+                          key={p.userId}
+                          className={`pay-row status-${status.id} ${isPayer ? "is-payer" : ""}`}
+                        >
+                          <div className="pay-row-head">
+                            <div className="pay-row-name">
+                              <img
+                                src={p.picture || "https://via.placeholder.com/30"}
+                                alt={p.name}
+                                className="avatar"
+                              />
+                              <div className="min-w-0">
+                                <strong>{p.name}</strong>
+                                <small>ส่วนแบ่ง {money(p.share)}</small>
+                              </div>
+                            </div>
+                            <span className={`pay-status pay-status-${status.id}`}>
+                              {isPayer ? "ผู้ออกเงิน" : status.label}
+                            </span>
+                          </div>
+
+                          {!isPayer && (
+                            <div className="pay-row-input">
+                              <div className="pay-input-group">
+                                <span className="pay-input-prefix">จ่ายแล้ว</span>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  className="form-control"
+                                  value={draftPaid}
+                                  onChange={(e) =>
+                                    setDraft(activeBill.id, p.userId, e.target.value)
+                                  }
+                                />
+                              </div>
+                              <div className="pay-quick">
+                                <button
+                                  type="button"
+                                  className="btn btn-sm btn-outline-success"
+                                  onClick={() => markPaidFull(activeBill, p)}
+                                  title="ตั้งเป็นจ่ายครบ"
+                                >
+                                  ครบ
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn btn-sm btn-light border"
+                                  onClick={() => markPaidZero(activeBill, p)}
+                                  title="ล้างยอดที่จ่าย"
+                                >
+                                  0
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
+
+                  {/* Payment summary + save bar */}
+                  {activeBillSummary && (
+                    <div className="pay-summary">
+                      <div className="pay-summary-stats">
+                        <span>ยอด {money(activeBillSummary.totalShare)}</span>
+                        <span>·</span>
+                        <span>จ่ายแล้ว {money(activeBillSummary.totalPaid)}</span>
+                        <span>·</span>
+                        <span className={activeBillSummary.remaining > 0 ? "is-warn" : "is-good"}>
+                          {activeBillSummary.remaining > 0
+                            ? `เหลือ ${money(activeBillSummary.remaining)}`
+                            : activeBillSummary.remaining < 0
+                              ? `เกิน ${money(-activeBillSummary.remaining)}`
+                              : "สมดุล"}
+                        </span>
+                      </div>
+                      {hasUnsavedPayments(activeBill) && (
+                        <div className="pay-actions">
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-light border"
+                            onClick={() => discardPayments(activeBill.id)}
+                            disabled={savingPayments}
+                          >
+                            ยกเลิก
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-success"
+                            onClick={() => savePayments(activeBill)}
+                            disabled={savingPayments}
+                          >
+                            {savingPayments ? "กำลังบันทึก..." : "บันทึกการชำระ"}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   <div className="d-flex gap-2 mt-3">
                     <button className="btn btn-sm btn-outline-primary" onClick={() => handleEdit(activeBill)}>
@@ -588,18 +822,28 @@ function BillManager() {
           )}
         </div>
 
-        <aside className="soft-card p-4">
-          <h2 className="h4 fw-bold">สรุปยอดต้องชำระ</h2>
+        <aside className="soft-card p-3 p-md-4">
+          <h2 className="h5 fw-bold">สรุปยอดต้องชำระ</h2>
           {summaryByPerson.length === 0 ? (
-            <p className="text-muted mb-0">ยังไม่มีรายการที่ต้องจ่ายคืน</p>
+            <p className="text-muted mb-0 small">ทุกบิลชำระสมดุลแล้ว</p>
           ) : (
-            <div className="list-group list-group-flush">
-              {summaryByPerson.map((row) => (
-                <div key={`${row.debtorName}-${row.payerName}`} className="list-group-item px-0">
-                  <strong>{row.debtorName}</strong> จ่ายให้ <strong>{row.payerName}</strong>
-                  <span className="d-block text-success fw-bold">{money(row.amount)} บาท</span>
-                </div>
-              ))}
+            <div className="debt-list">
+              {summaryByPerson.map((row) => {
+                const isOver = row.amount < 0;
+                return (
+                  <div key={`${row.debtorName}-${row.payerName}`} className="debt-row">
+                    <div className="debt-row-text">
+                      <strong>{row.debtorName}</strong>
+                      <small>
+                        {isOver ? "จ่ายเกินให้" : "ค้างจ่ายให้"} {row.payerName}
+                      </small>
+                    </div>
+                    <strong className={`debt-amount ${isOver ? "is-over" : "is-due"}`}>
+                      {money(Math.abs(row.amount))}
+                    </strong>
+                  </div>
+                );
+              })}
             </div>
           )}
         </aside>
