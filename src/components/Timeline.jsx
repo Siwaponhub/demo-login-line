@@ -362,7 +362,7 @@ function Timeline() {
         ) : (
           <div className="section-grid">
             {groups.map((g) => (
-              <Link key={g.id} to={`/group/${g.id}/timeline`} className="menu-card">
+              <Link key={g.id} to={`/group/${g.id}?tab=timeline`} className="menu-card">
                 <span className="tile-icon warn">T</span>
                 <span>
                   <h2>{g.name}</h2>
