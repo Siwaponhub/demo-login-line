@@ -19,7 +19,7 @@ function Layout({ children }) {
           </Link>
 
           <Link to="/profile" className="profile-chip">
-            <img src={user.picture} alt={user.name} />
+            <img src={user.picture} alt={user.name} data-image-viewer="off" />
             <span>{user.name}</span>
           </Link>
         </header>

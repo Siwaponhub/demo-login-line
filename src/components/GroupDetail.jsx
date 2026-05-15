@@ -124,6 +124,8 @@ function FinanceSettings({ group, gid, onUpdate }) {
   const [qrDataUrl, setQrDataUrl] = useState(group.wallet?.qrDataUrl || "");
   const [savingWallet, setSavingWallet] = useState(false);
   const [savingRoles, setSavingRoles] = useState(false);
+  const [profileSourceId, setProfileSourceId] = useState("");
+  const [loadingProfileSource, setLoadingProfileSource] = useState(false);
   const qrInputRef = useRef(null);
   const financeIds = group.financeUserIds || [];
 
@@ -133,6 +135,42 @@ function FinanceSettings({ group, gid, onUpdate }) {
     if (!file) return;
     const url = await resizeImageToDataURL(file, { maxSize: 512, quality: 0.85 });
     setQrDataUrl(url);
+  };
+
+  const handleProfileSource = async (userId) => {
+    setProfileSourceId(userId);
+    if (!userId) return;
+    setLoadingProfileSource(true);
+    try {
+      const member = group.members?.find((m) => m.userId === userId);
+      const profile = await getUserProfile(userId);
+      const bankProfile = profile?.bankProfile;
+      if (!bankProfile?.bankAccount && !bankProfile?.promptpay) {
+        Swal.fire(
+          "ยังไม่มีบัญชีในโปรไฟล์",
+          `${member?.name || "สมาชิกคนนี้"} ยังไม่ได้บันทึกบัญชีธนาคารในโปรไฟล์`,
+          "info"
+        );
+        return;
+      }
+      setAccountName(bankProfile.accountName || member?.name || "");
+      setBankName(bankProfile.bankName || "");
+      setBankAccount(bankProfile.bankAccount || "");
+      setPromptpay(bankProfile.promptpay || "");
+      Swal.fire({
+        toast: true,
+        position: "top",
+        icon: "success",
+        title: `ดึงบัญชีของ ${member?.name || "สมาชิก"} แล้ว`,
+        showConfirmButton: false,
+        timer: 1400,
+      });
+    } catch (err) {
+      console.error(err);
+      Swal.fire("เกิดข้อผิดพลาด", "ดึงบัญชีจากโปรไฟล์ไม่สำเร็จ", "error");
+    } finally {
+      setLoadingProfileSource(false);
+    }
   };
 
   const saveWallet = async () => {
@@ -168,6 +206,30 @@ function FinanceSettings({ group, gid, onUpdate }) {
           <h2 className="settings-title">บัญชีรับโอนของทริป</h2>
           <p className="settings-desc">สมาชิกจะเห็นเลขบัญชีนี้เมื่อกดปุ่มชำระเงินในแท็บการเงิน</p>
         </header>
+
+        <div className="wallet-profile-source">
+          <div>
+            <label className="form-label fw-bold small">ดึงจากโปรไฟล์สมาชิก</label>
+            <select
+              className="form-control"
+              value={profileSourceId}
+              onChange={(e) => handleProfileSource(e.target.value)}
+              disabled={loadingProfileSource}
+            >
+              <option value="">เลือกสมาชิกในกลุ่ม</option>
+              {group.members?.map((member) => (
+                <option key={member.userId} value={member.userId}>
+                  {member.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <small>
+            เลือกสมาชิกเพื่อเติมข้อมูลบัญชีที่เจ้าตัวบันทึกไว้ในหน้าโปรไฟล์
+            {loadingProfileSource && " · กำลังโหลด..."}
+          </small>
+        </div>
+
         <div className="row g-2">
           <div className="col-12 col-md-6">
             <label className="form-label fw-bold small">ชื่อบัญชี</label>
