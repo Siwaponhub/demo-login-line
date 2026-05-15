@@ -1,20 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { collection, doc, getDoc, getDocs } from "firebase/firestore";
+import { collection, deleteField, doc, getDoc, getDocs } from "firebase/firestore";
 import Swal from "sweetalert2";
 import { db } from "../firebase";
 import { createBill, deleteBill, getBills, updateBill } from "../services/billService";
 import { isFinance } from "../services/financeService";
-import { resizeImageToDataURL } from "../utils/image";
 import { useAuth } from "../AuthContext";
-import { useImageViewer } from "../ImageViewerContext";
 import BackHomeButtons from "./BackHomeButtons";
 
 const emptyBill = {
   title: "",
   amount: "",
   payerId: "",
-  slipDataUrl: "",
   participants: [],
 };
 
@@ -23,26 +20,6 @@ const money = (amount) =>
     minimumFractionDigits: 0,
     maximumFractionDigits: 2,
   });
-
-// Status helper for participant payment state
-function paymentStatus(share, paid) {
-  const s = Number(share || 0);
-  const p = Number(paid || 0);
-  if (p <= 0) return { id: "unpaid", label: "ยังไม่จ่าย", remaining: s };
-  if (Math.abs(p - s) < 0.01) return { id: "paid", label: "จ่ายครบ", remaining: 0 };
-  if (p < s) return { id: "partial", label: `ค้าง ${money(s - p)}`, remaining: s - p };
-  return { id: "over", label: `เกิน ${money(p - s)}`, remaining: s - p };
-}
-
-function paidValueFor(bill, participant, drafts = {}) {
-  if (participant.userId === bill.payerId) {
-    return Number(participant.share || 0);
-  }
-  if (Object.prototype.hasOwnProperty.call(drafts, participant.userId)) {
-    return Number(drafts[participant.userId]) || 0;
-  }
-  return Number(participant.paid) || 0;
-}
 
 function roundMoney(value) {
   return Math.round(Number(value || 0) * 100) / 100;
@@ -97,30 +74,9 @@ function createBillOpenLog(payload, actor) {
   };
 }
 
-async function pickAndCompressSlip() {
-  return new Promise((resolve) => {
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = "image/*";
-    input.onchange = async () => {
-      const file = input.files?.[0];
-      if (!file) return resolve(null);
-      try {
-        const url = await resizeImageToDataURL(file, { maxSize: 900, quality: 0.76 });
-        resolve(url);
-      } catch (err) {
-        console.error(err);
-        resolve(null);
-      }
-    };
-    input.click();
-  });
-}
-
 function BillManager() {
   const { id } = useParams();
   const { user } = useAuth();
-  const { openImage } = useImageViewer();
   const [groups, setGroups] = useState([]);
   const [group, setGroup] = useState(null);
   const [bills, setBills] = useState([]);
@@ -129,9 +85,6 @@ function BillManager() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [activeBillId, setActiveBillId] = useState(null);
-  const [paidDrafts, setPaidDrafts] = useState({}); // billId -> { userId: paidValue }
-  const [slipDrafts, setSlipDrafts] = useState({}); // billId -> { userId: slipDataUrl }
-  const [savingPayments, setSavingPayments] = useState(false);
 
   const isGroupRoute = Boolean(id);
   const members = useMemo(() => group?.members || [], [group]);
@@ -314,7 +267,6 @@ function BillManager() {
           picture: m.picture || "",
           share: existing?.share || 0,
           paid: existing?.paid || 0,
-          slipDataUrl: existing?.slipDataUrl || "",
         };
       }),
     }));
@@ -351,16 +303,6 @@ function BillManager() {
     }));
   };
 
-  const attachBillSlip = async () => {
-    const slipDataUrl = await pickAndCompressSlip();
-    if (!slipDataUrl) return;
-    updateForm("slipDataUrl", slipDataUrl);
-  };
-
-  const removeBillSlip = () => {
-    updateForm("slipDataUrl", "");
-  };
-
   const handleSubmit = async (event) => {
     event.preventDefault();
     const amount = Number(form.amount || 0);
@@ -384,7 +326,11 @@ function BillManager() {
 
     const payer = members.find((m) => m.userId === form.payerId);
     const participantsWithPaid = form.participants.map((p) => ({
-      ...p,
+      userId: p.userId,
+      name: p.name,
+      email: p.email || "",
+      picture: p.picture || "",
+      share: Number(p.share) || 0,
       paid: p.userId === form.payerId ? Number(p.share || 0) : Number(p.paid) || 0,
     }));
 
@@ -393,14 +339,13 @@ function BillManager() {
       amount,
       payerId: form.payerId,
       payerName: payer?.name || "",
-      slipDataUrl: form.slipDataUrl || "",
       participants: participantsWithPaid,
       updatedBy: user.userId,
     };
 
     try {
       if (editingId) {
-        await updateBill(id, editingId, payload);
+        await updateBill(id, editingId, { ...payload, slipDataUrl: deleteField() });
         Swal.fire({
           toast: true, position: "top", icon: "success",
           title: "แก้ไขบิลแล้ว", showConfirmButton: false, timer: 1400,
@@ -433,9 +378,12 @@ function BillManager() {
       title: bill.title || "",
       amount: bill.amount || "",
       payerId: bill.payerId || user?.userId || "",
-      slipDataUrl: bill.slipDataUrl || "",
       participants: (bill.participants || []).map((p) => ({
-        ...p,
+        userId: p.userId,
+        name: p.name,
+        email: p.email || "",
+        picture: p.picture || "",
+        share: Number(p.share) || 0,
         paid: Number(p.paid) || 0,
       })),
     });
@@ -463,183 +411,8 @@ function BillManager() {
     });
   };
 
-  // === Payment editing ===
-
-  const draftFor = (bill, userId) => {
-    const p = bill.participants?.find((x) => x.userId === userId);
-    if (userId === bill.payerId) {
-      return Number(p?.share || 0);
-    }
-    const drafts = paidDrafts[bill.id];
-    if (drafts && Object.prototype.hasOwnProperty.call(drafts, userId)) {
-      return drafts[userId];
-    }
-    return Number(p?.paid || 0);
-  };
-
-  const setDraft = (billId, userId, value) => {
-    setPaidDrafts((prev) => ({
-      ...prev,
-      [billId]: { ...(prev[billId] || {}), [userId]: value },
-    }));
-  };
-
-  const slipFor = (bill, userId) => {
-    const drafts = slipDrafts[bill.id];
-    if (drafts && Object.prototype.hasOwnProperty.call(drafts, userId)) {
-      return drafts[userId] || "";
-    }
-    const p = bill.participants?.find((x) => x.userId === userId);
-    return p?.slipDataUrl || "";
-  };
-
-  const setSlipDraft = (billId, userId, slipDataUrl) => {
-    setSlipDrafts((prev) => ({
-      ...prev,
-      [billId]: { ...(prev[billId] || {}), [userId]: slipDataUrl },
-    }));
-  };
-
-  const attachSlip = async (bill, p) => {
-    const slipDataUrl = await pickAndCompressSlip();
-    if (!slipDataUrl) return;
-    setSlipDraft(bill.id, p.userId, slipDataUrl);
-  };
-
-  const removeSlip = (bill, p) => {
-    setSlipDraft(bill.id, p.userId, "");
-  };
-
-  const markPaidFull = (bill, p) => {
-    setDraft(bill.id, p.userId, Number(p.share || 0));
-  };
-
-  const markPaidZero = (bill, p) => {
-    setDraft(bill.id, p.userId, 0);
-  };
-
-  const hasUnsavedPayments = (bill) => {
-    const drafts = paidDrafts[bill.id];
-    const slipDraft = slipDrafts[bill.id];
-    const hasPaidChange = drafts && Object.entries(drafts).some(([uid, v]) => {
-      const p = bill.participants?.find((x) => x.userId === uid);
-      return Number(p?.paid || 0) !== Number(v || 0);
-    });
-    const hasSlipChange = slipDraft && Object.entries(slipDraft).some(([uid, v]) => {
-      const p = bill.participants?.find((x) => x.userId === uid);
-      return (p?.slipDataUrl || "") !== (v || "");
-    });
-    return Boolean(hasPaidChange || hasSlipChange);
-  };
-
-  const savePayments = async (bill) => {
-    const drafts = paidDrafts[bill.id] || {};
-    const slipDraft = slipDrafts[bill.id] || {};
-    const updatedParticipants = (bill.participants || []).map((p) => ({
-      ...p,
-      paid: paidValueFor(bill, p, drafts),
-      slipDataUrl: Object.prototype.hasOwnProperty.call(slipDraft, p.userId)
-        ? slipDraft[p.userId] || ""
-        : p.slipDataUrl || "",
-    }));
-    const payer = members.find((m) => m.userId === bill.payerId);
-    const payerName = payer?.name || bill.payerName || "ผู้จ่าย";
-    const nowIso = new Date().toISOString();
-    const newLogs = updatedParticipants.flatMap((nextP) => {
-      if (nextP.userId === bill.payerId) return [];
-      const prevP = bill.participants?.find((p) => p.userId === nextP.userId) || {};
-      const prevPaid = roundMoney(prevP.paid);
-      const nextPaid = roundMoney(nextP.paid);
-      const delta = roundMoney(nextPaid - prevPaid);
-      const prevSlip = prevP.slipDataUrl || "";
-      const nextSlip = nextP.slipDataUrl || "";
-      const base = {
-        billTitle: bill.title,
-        fromUserId: nextP.userId,
-        fromName: nextP.name,
-        toUserId: bill.payerId,
-        toName: payerName,
-        share: roundMoney(nextP.share),
-        paid: nextPaid,
-        createdAt: nowIso,
-        createdBy: user.userId,
-        createdByName: user.name,
-      };
-      const logs = [];
-
-      if (Math.abs(delta) >= 0.01) {
-        logs.push({
-          ...base,
-          id: makePaymentLogId(),
-          type: delta > 0 ? "payment" : "payment_adjustment",
-          amount: Math.abs(delta),
-          previousPaid: prevPaid,
-        });
-      }
-
-      if (prevSlip !== nextSlip) {
-        logs.push({
-          ...base,
-          id: makePaymentLogId(),
-          type: !nextSlip ? "slip_removed" : prevSlip ? "slip_updated" : "slip_added",
-          amount: nextPaid,
-        });
-      }
-
-      return logs;
-    });
-    const nextPaymentLogs = [...(bill.paymentLogs || []), ...newLogs];
-    try {
-      setSavingPayments(true);
-      await updateBill(id, bill.id, {
-        ...bill,
-        participants: updatedParticipants,
-        paymentLogs: nextPaymentLogs,
-        updatedBy: user.userId,
-      });
-      setBills((prev) =>
-        prev.map((b) =>
-          b.id === bill.id
-            ? { ...b, participants: updatedParticipants, paymentLogs: nextPaymentLogs }
-            : b
-        )
-      );
-      setPaidDrafts((prev) => {
-        const next = { ...prev };
-        delete next[bill.id];
-        return next;
-      });
-      setSlipDrafts((prev) => {
-        const next = { ...prev };
-        delete next[bill.id];
-        return next;
-      });
-      Swal.fire({
-        toast: true, position: "top", icon: "success",
-        title: "บันทึกการชำระแล้ว", showConfirmButton: false, timer: 1400,
-      });
-    } catch (err) {
-      console.error(err);
-      Swal.fire("เกิดข้อผิดพลาด", "บันทึกการชำระไม่สำเร็จ", "error");
-    } finally {
-      setSavingPayments(false);
-    }
-  };
-
-  const discardPayments = (billId) => {
-    setPaidDrafts((prev) => {
-      const next = { ...prev };
-      delete next[billId];
-      return next;
-    });
-    setSlipDrafts((prev) => {
-      const next = { ...prev };
-      delete next[billId];
-      return next;
-    });
-  };
-
   // === Render group picker (no group route) ===
+
 
   if (!isGroupRoute) {
     return (
@@ -679,18 +452,20 @@ function BillManager() {
   // เฉพาะเจ้าของกลุ่ม + ฝ่ายการเงิน → จัดการบิล/payment ได้
   const canManage = isFinance(group, user?.userId);
 
-  // active bill payment summary
+  // active bill share summary
   const activeBillSummary = (() => {
     if (!activeBill) return null;
-    const drafts = paidDrafts[activeBill.id] || {};
     const totalShare = (activeBill.participants || []).reduce(
       (sum, p) => sum + Number(p.share || 0),
       0
     );
-    const totalPaid = (activeBill.participants || []).reduce((sum, p) => {
-      return sum + paidValueFor(activeBill, p, drafts);
-    }, 0);
-    return { totalShare, totalPaid, remaining: totalShare - totalPaid };
+    const billAmount = Number(activeBill.amount || 0);
+    return {
+      billAmount,
+      totalShare,
+      participantCount: activeBill.participants?.length || 0,
+      diff: roundMoney(billAmount - totalShare),
+    };
   })();
 
   return (
@@ -777,36 +552,6 @@ function BillManager() {
                   <option key={m.userId} value={m.userId}>{m.name}</option>
                 ))}
               </select>
-            </div>
-          </div>
-
-          <div className="bill-slip-field mt-3">
-            <div className="bill-slip-text">
-              <strong>สลิป/ใบเสร็จของบิล</strong>
-              <small>แนบหลักฐานตอนเปิดบิลได้</small>
-            </div>
-            {form.slipDataUrl ? (
-              <button
-                type="button"
-                className="bill-slip-preview"
-                onClick={() => openImage(form.slipDataUrl, `${form.title || "bill"}-slip.jpg`)}
-                title="ดูสลิปบิล"
-              >
-                <img src={form.slipDataUrl} alt="สลิปบิล" />
-                <span>ดูสลิป</span>
-              </button>
-            ) : (
-              <span className="bill-slip-empty">ยังไม่มีสลิป</span>
-            )}
-            <div className="bill-slip-actions">
-              <button type="button" className="btn btn-sm btn-light border" onClick={attachBillSlip}>
-                {form.slipDataUrl ? "เปลี่ยนสลิป" : "แนบสลิป"}
-              </button>
-              {form.slipDataUrl && (
-                <button type="button" className="btn btn-sm btn-outline-danger" onClick={removeBillSlip}>
-                  ลบสลิป
-                </button>
-              )}
             </div>
           </div>
 
@@ -916,13 +661,6 @@ function BillManager() {
             <>
               <div className="bill-switcher" aria-label="เลือกบิล">
                 {bills.map((bill) => {
-                  const totalShare = (bill.participants || []).reduce(
-                    (s, p) => s + Number(p.share || 0), 0
-                  );
-                  const totalPaid = (bill.participants || []).reduce(
-                    (s, p) => s + paidValueFor(bill, p), 0
-                  );
-                  const isSettled = totalShare > 0 && Math.abs(totalShare - totalPaid) < 0.01;
                   return (
                     <button
                       key={bill.id}
@@ -933,7 +671,6 @@ function BillManager() {
                       <span>{bill.title}</span>
                       <small className="d-flex align-items-center gap-1">
                         {money(bill.amount)}
-                        {isSettled && <span className="bill-tab-tick" aria-label="จ่ายครบ">✓</span>}
                       </small>
                     </button>
                   );
@@ -949,21 +686,12 @@ function BillManager() {
                     </div>
                     <div className="bill-card-meta">
                       <strong>{money(activeBill.amount)}</strong>
-                      {activeBill.slipDataUrl && (
-                        <button
-                          type="button"
-                          className="bill-slip-link"
-                          onClick={() => openImage(activeBill.slipDataUrl, `bill-${activeBill.id}-slip.jpg`)}
-                        >
-                          ดูสลิปบิล
-                        </button>
-                      )}
                     </div>
                   </div>
 
                   <div className="bill-participants">
                     <div className="bill-section-title">
-                      <span>ติดตามการชำระ</span>
+                      <span>สมาชิกที่ร่วมบิล</span>
                       <small>{activeBill.participants?.length || 0} คน</small>
                     </div>
 
@@ -977,14 +705,11 @@ function BillManager() {
                         return 0;
                       })
                       .map((p) => {
-                      const draftPaid = draftFor(activeBill, p.userId);
-                      const status = paymentStatus(p.share, draftPaid);
                       const isPayer = p.userId === activeBill.payerId;
-                      const slipDataUrl = slipFor(activeBill, p.userId);
                       return (
                         <div
                           key={p.userId}
-                          className={`pay-row status-${status.id} ${isPayer ? "is-payer" : ""}`}
+                          className={`pay-row ${isPayer ? "is-payer" : ""}`}
                         >
                           <div className="pay-row-head">
                             <div className="pay-row-name">
@@ -998,128 +723,33 @@ function BillManager() {
                                 <small>ส่วนแบ่ง {money(p.share)}</small>
                               </div>
                             </div>
-                            <span className={`pay-status pay-status-${status.id}`}>
-                              {isPayer ? "ผู้ออกเงิน" : status.label}
+                            <span className={`pay-status ${isPayer ? "pay-status-paid" : "pay-status-member"}`}>
+                              {isPayer ? "ผู้ออกเงิน" : "ร่วมบิล"}
                             </span>
                           </div>
-
-                          {!isPayer && (canManage || slipDataUrl) && (
-                            <div className="pay-row-controls">
-                              {canManage && (
-                                <div className="pay-row-input">
-                                  <div className="pay-input-group">
-                                    <span className="pay-input-prefix">จ่ายแล้ว</span>
-                                    <input
-                                      type="number"
-                                      min="0"
-                                      step="0.01"
-                                      className="form-control"
-                                      value={draftPaid}
-                                      onChange={(e) =>
-                                        setDraft(activeBill.id, p.userId, e.target.value)
-                                      }
-                                    />
-                                  </div>
-                                  <div className="pay-quick">
-                                    <button
-                                      type="button"
-                                      className="btn btn-sm btn-outline-success"
-                                      onClick={() => markPaidFull(activeBill, p)}
-                                      title="ตั้งเป็นจ่ายครบ"
-                                    >
-                                      ครบ
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className="btn btn-sm btn-light border"
-                                      onClick={() => markPaidZero(activeBill, p)}
-                                      title="ล้างยอดที่จ่าย"
-                                    >
-                                      0
-                                    </button>
-                                  </div>
-                                </div>
-                              )}
-
-                              <div className="pay-slip-row">
-                                {slipDataUrl ? (
-                                  <button
-                                    type="button"
-                                    className="pay-slip-preview"
-                                    onClick={() => openImage(slipDataUrl, `bill-${activeBill.id}-${p.userId}.jpg`)}
-                                    title="ดูสลิป"
-                                  >
-                                    <img src={slipDataUrl} alt="สลิปการชำระ" />
-                                    <span>ดูสลิป</span>
-                                  </button>
-                                ) : (
-                                  <span className="pay-slip-empty">ยังไม่มีสลิป</span>
-                                )}
-
-                                {canManage && (
-                                  <div className="pay-slip-actions">
-                                    <button
-                                      type="button"
-                                      className="btn btn-sm btn-light border"
-                                      onClick={() => attachSlip(activeBill, p)}
-                                    >
-                                      {slipDataUrl ? "เปลี่ยนสลิป" : "แนบสลิป"}
-                                    </button>
-                                    {slipDataUrl && (
-                                      <button
-                                        type="button"
-                                        className="btn btn-sm btn-outline-danger"
-                                        onClick={() => removeSlip(activeBill, p)}
-                                      >
-                                        ลบสลิป
-                                      </button>
-                                    )}
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          )}
                         </div>
                       );
                     })}
                   </div>
 
-                  {/* Payment summary + save bar */}
+                  {/* Bill summary */}
                   {activeBillSummary && (
                     <div className="pay-summary">
                       <div className="pay-summary-stats">
-                        <span>ยอด {money(activeBillSummary.totalShare)}</span>
+                        <span>ยอดบิล {money(activeBillSummary.billAmount)}</span>
                         <span>·</span>
-                        <span>จ่ายแล้ว {money(activeBillSummary.totalPaid)}</span>
+                        <span>ส่วนแบ่งรวม {money(activeBillSummary.totalShare)}</span>
                         <span>·</span>
-                        <span className={activeBillSummary.remaining > 0 ? "is-warn" : "is-good"}>
-                          {activeBillSummary.remaining > 0
-                            ? `เหลือ ${money(activeBillSummary.remaining)}`
-                            : activeBillSummary.remaining < 0
-                              ? `เกิน ${money(-activeBillSummary.remaining)}`
-                              : "สมดุล"}
+                        <span>{activeBillSummary.participantCount} คน</span>
+                        <span>·</span>
+                        <span className={Math.abs(activeBillSummary.diff) >= 0.01 ? "is-warn" : "is-good"}>
+                          {Math.abs(activeBillSummary.diff) < 0.01
+                            ? "ยอดตรงกัน"
+                            : activeBillSummary.diff > 0
+                              ? `ยังไม่ถูกหาร ${money(activeBillSummary.diff)}`
+                              : `หารเกิน ${money(-activeBillSummary.diff)}`}
                         </span>
                       </div>
-                      {canManage && hasUnsavedPayments(activeBill) && (
-                        <div className="pay-actions">
-                          <button
-                            type="button"
-                            className="btn btn-sm btn-light border"
-                            onClick={() => discardPayments(activeBill.id)}
-                            disabled={savingPayments}
-                          >
-                            ยกเลิก
-                          </button>
-                          <button
-                            type="button"
-                            className="btn btn-sm btn-success"
-                            onClick={() => savePayments(activeBill)}
-                            disabled={savingPayments}
-                          >
-                            {savingPayments ? "กำลังบันทึก..." : "บันทึกการชำระ"}
-                          </button>
-                        </div>
-                      )}
                     </div>
                   )}
 

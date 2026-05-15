@@ -8,6 +8,7 @@ import {
 
 const paymentsRef = (gid) => collection(db, "groups", gid, "payments");
 const payoutsRef = (gid) => collection(db, "groups", gid, "payouts");
+const roundMoney = (value) => Math.round(Number(value || 0) * 100) / 100;
 
 // ====== NETTING CALCULATION (FR-1) ======
 // Input: bills[] + members[]
@@ -93,6 +94,48 @@ export async function deletePayment(gid, paymentId) {
   return deleteDoc(doc(db, "groups", gid, "payments", paymentId));
 }
 
+export function paymentTotalAmount(payment) {
+  const value = payment.actualAmount !== undefined ? payment.actualAmount : payment.amount;
+  return roundMoney(value);
+}
+
+export function getPaymentAllocations(payment) {
+  const rawAllocations = Array.isArray(payment.allocations) && payment.allocations.length > 0
+    ? payment.allocations
+    : [{
+        userId: payment.userId,
+        userName: payment.userName,
+        amount: payment.amount,
+      }];
+  const cleaned = rawAllocations
+    .map((allocation) => ({
+      userId: allocation.userId,
+      userName: allocation.userName || allocation.name || "สมาชิก",
+      amount: roundMoney(allocation.amount),
+    }))
+    .filter((allocation) => allocation.userId && allocation.amount > 0);
+  const claimedTotal = roundMoney(cleaned.reduce((sum, allocation) => sum + allocation.amount, 0));
+  const actualTotal = paymentTotalAmount(payment);
+
+  if (!cleaned.length || payment.actualAmount === undefined || claimedTotal <= 0) {
+    return cleaned;
+  }
+
+  let allocatedTotal = 0;
+  const scaled = cleaned.map((allocation, index) => {
+    const amount = index === cleaned.length - 1
+      ? roundMoney(actualTotal - allocatedTotal)
+      : roundMoney((allocation.amount / claimedTotal) * actualTotal);
+    allocatedTotal = roundMoney(allocatedTotal + amount);
+    return { ...allocation, amount: Math.max(0, amount) };
+  });
+  return scaled.filter((allocation) => allocation.amount > 0);
+}
+
+export function paymentIncludesUser(payment, userId) {
+  return getPaymentAllocations(payment).some((allocation) => allocation.userId === userId);
+}
+
 // ====== PAYOUT RECORDS (FR-3.3, FR-4) ======
 export async function sendPayout(gid, payload) {
   return addDoc(payoutsRef(gid), {
@@ -124,6 +167,7 @@ export const STATUS = {
   PENDING_PAYMENT: { id: "pending_payment", label: "รอชำระ", tone: "unpaid" },
   PENDING_VERIFICATION: { id: "pending_verification", label: "รอตรวจสลิป", tone: "partial" },
   PAID: { id: "paid", label: "ชำระแล้ว", tone: "paid" },
+  OVERPAID: { id: "overpaid", label: "จ่ายเกิน", tone: "over" },
   PENDING_PAYOUT: { id: "pending_payout", label: "รอโอนคืน", tone: "unpaid" },
   PAYOUT_SENT: { id: "payout_sent", label: "โอนคืนแล้ว", tone: "over" },
   AWAITING_CONFIRMATION: { id: "awaiting_confirmation", label: "รอยืนยันรับเงิน", tone: "partial" },
@@ -132,9 +176,15 @@ export const STATUS = {
 
 // ยอดที่ verified แล้วของคนนี้ (รวม actualAmount แทน amount ถ้ามี)
 export function totalVerifiedPaid(userId, payments) {
-  return payments
-    .filter((p) => p.userId === userId && p.status === "verified")
-    .reduce((s, p) => s + (Number(p.actualAmount) || Number(p.amount) || 0), 0);
+  return roundMoney(payments
+    .filter((p) => p.status === "verified")
+    .reduce(
+      (sum, payment) =>
+        sum + getPaymentAllocations(payment)
+          .filter((allocation) => allocation.userId === userId)
+          .reduce((allocationSum, allocation) => allocationSum + allocation.amount, 0),
+      0
+    ));
 }
 
 // ยอดที่ค้างจ่ายของ user (net ติดลบ - ที่จ่ายไปแล้ว) — ไม่ติดลบ
@@ -143,6 +193,12 @@ export function getOutstanding(memberRow, payments) {
   const owed = Math.abs(memberRow.net);
   const paid = totalVerifiedPaid(memberRow.userId, payments);
   return Math.max(0, Math.round((owed - paid) * 100) / 100);
+}
+
+export function getOverpaid(memberRow, payments) {
+  const owed = memberRow.net < -0.01 ? Math.abs(memberRow.net) : 0;
+  const paid = totalVerifiedPaid(memberRow.userId, payments);
+  return Math.max(0, Math.round((paid - owed) * 100) / 100);
 }
 
 // ยอดที่รอรับคืน (net เป็นบวก - ที่ถูกโอนคืนไปแล้ว)
@@ -157,7 +213,7 @@ export function getPayoutRemaining(memberRow, payouts) {
 
 export function deriveStatus(memberRow, payments, payouts) {
   const { userId, net } = memberRow;
-  const myPays = payments.filter((p) => p.userId === userId);
+  const myPays = payments.filter((p) => paymentIncludesUser(p, userId));
   const myPouts = payouts.filter((p) => p.toUserId === userId);
 
   if (Math.abs(net) < 0.01) return STATUS.COMPLETED;
@@ -166,6 +222,7 @@ export function deriveStatus(memberRow, payments, payouts) {
     // ต้องจ่ายเพิ่ม — ใช้ยอด actualAmount สะสม
     const owed = Math.abs(net);
     const paidSum = totalVerifiedPaid(userId, payments);
+    if (paidSum > owed + 0.01) return STATUS.OVERPAID;
     if (paidSum >= owed - 0.01) return STATUS.PAID;
 
     const pending = myPays.find((p) => p.status === "pending");

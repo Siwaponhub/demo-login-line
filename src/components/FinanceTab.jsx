@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Swal from "sweetalert2";
 import {
   STATUS, attachGeminiCheck, computeNetting, confirmPayout, deletePayment,
   deletePayout, deriveStatus, getOutstanding, getPayments, getPayouts,
-  getPayoutRemaining, isFinance, reviewPayment, sendPayout, submitPayment,
+  getOverpaid, getPaymentAllocations, getPayoutRemaining, isFinance,
+  paymentTotalAmount, reviewPayment, sendPayout, submitPayment, totalVerifiedPaid,
 } from "../services/financeService";
 import { isGeminiEnabled, verifySlip } from "../services/geminiService";
 import { resizeImageToDataURL } from "../utils/image";
@@ -13,6 +14,8 @@ import { useImageViewer } from "../ImageViewerContext";
 
 const money = (n) =>
   Number(n || 0).toLocaleString("th-TH", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+
+const roundMoney = (value) => Math.round(Number(value || 0) * 100) / 100;
 
 const toast = (icon, title) =>
   Swal.fire({ toast: true, position: "top", icon, title, showConfirmButton: false, timer: 1400 });
@@ -50,6 +53,8 @@ function FinanceTab({ group, gid }) {
   const [payouts, setPayouts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState(null);
+  const [paymentModal, setPaymentModal] = useState(null);
+  const [savingPayment, setSavingPayment] = useState(false);
   const [payoutModal, setPayoutModal] = useState(null);
   const [savingPayout, setSavingPayout] = useState(false);
   const fileSubmittingRef = useRef(false);
@@ -57,7 +62,7 @@ function FinanceTab({ group, gid }) {
   const finance = isFinance(group, user?.userId);
   const wallet = group?.wallet || {};
 
-  const reload = async () => {
+  const reload = useCallback(async () => {
     setLoading(true);
     try {
       const [b, ps, po] = await Promise.all([
@@ -71,13 +76,15 @@ function FinanceTab({ group, gid }) {
     } finally {
       setLoading(false);
     }
-  };
-  useEffect(() => { reload(); /* eslint-disable-next-line */ }, [gid]);
+  }, [gid]);
+  useEffect(() => { reload(); }, [reload]);
 
   useEffect(() => {
-    if (!payoutModal) return;
+    if (!paymentModal && !payoutModal) return;
     const onKey = (event) => {
-      if (event.key === "Escape" && !savingPayout) setPayoutModal(null);
+      if (event.key !== "Escape") return;
+      if (paymentModal && !savingPayment) setPaymentModal(null);
+      if (payoutModal && !savingPayout) setPayoutModal(null);
     };
     document.addEventListener("keydown", onKey);
     const prev = document.body.style.overflow;
@@ -86,7 +93,7 @@ function FinanceTab({ group, gid }) {
       document.removeEventListener("keydown", onKey);
       document.body.style.overflow = prev;
     };
-  }, [payoutModal, savingPayout]);
+  }, [paymentModal, payoutModal, savingPayment, savingPayout]);
 
   const netting = useMemo(
     () => computeNetting(bills, group?.members || []),
@@ -99,32 +106,175 @@ function FinanceTab({ group, gid }) {
   );
 
   const me = memberRows.find((r) => r.userId === user?.userId);
-  const myPendingPayment = payments.find(
+  const myPendingPayments = payments.filter(
     (p) => p.userId === user?.userId && p.status === "pending"
   );
   const myAwaitingPayout = payouts.find(
     (p) => p.toUserId === user?.userId && p.status === "sent"
   );
+  const paymentTargetRows = useMemo(
+    () =>
+      memberRows
+        .map((row) => ({
+          ...row,
+          paidIn: totalVerifiedPaid(row.userId, payments),
+          outstanding: getOutstanding(row, payments),
+          overpaid: getOverpaid(row, payments),
+        }))
+        .filter((row) => row.outstanding > 0.01),
+    [memberRows, payments]
+  );
+  const paymentDraft = useMemo(() => {
+    if (!paymentModal) {
+      return {
+        amount: 0,
+        allocations: [],
+        selectedOutstanding: 0,
+        remainingAfter: 0,
+        overAfter: 0,
+      };
+    }
+    const amount = roundMoney(paymentModal.amount);
+    const selected = paymentTargetRows
+      .filter((row) => paymentModal.selectedIds.includes(row.userId))
+      .sort((a, b) => {
+        if (a.userId === user?.userId) return -1;
+        if (b.userId === user?.userId) return 1;
+        return 0;
+      });
+    let remainingAmount = amount;
+    const allocations = selected.map((row) => {
+      const allocated = roundMoney(Math.min(row.outstanding, Math.max(0, remainingAmount)));
+      remainingAmount = roundMoney(remainingAmount - allocated);
+      return {
+        userId: row.userId,
+        userName: row.name,
+        picture: row.picture,
+        outstandingBefore: row.outstanding,
+        amount: allocated,
+        remainingAfter: Math.max(0, roundMoney(row.outstanding - allocated)),
+        overAfter: 0,
+      };
+    });
 
-  // ====== Member: แนบสลิปจ่ายเงิน (ใช้ยอดคงเหลือ) ======
-  const handlePayIn = async () => {
-    if (!me || me.net >= 0 || fileSubmittingRef.current) return;
-    const outstanding = getOutstanding(me, payments);
-    if (outstanding <= 0) return;
+    if (remainingAmount > 0.01 && user?.userId && selected.length > 0) {
+      const selfRow = memberRows.find((row) => row.userId === user.userId);
+      const existing = allocations.find((allocation) => allocation.userId === user.userId);
+      if (existing) {
+        existing.amount = roundMoney(existing.amount + remainingAmount);
+        existing.remainingAfter = 0;
+        existing.overAfter = roundMoney(existing.amount - existing.outstandingBefore);
+      } else {
+        allocations.push({
+          userId: user.userId,
+          userName: user.name || "คุณ",
+          picture: selfRow?.picture || user.picture || "",
+          outstandingBefore: 0,
+          amount: remainingAmount,
+          remainingAfter: 0,
+          overAfter: remainingAmount,
+          isExcess: true,
+        });
+      }
+      remainingAmount = 0;
+    }
+
+    const selectedOutstanding = roundMoney(
+      selected.reduce((sum, row) => sum + row.outstanding, 0)
+    );
+    return {
+      amount,
+      allocations: allocations.filter((allocation) => allocation.amount > 0),
+      selectedOutstanding,
+      remainingAfter: Math.max(0, roundMoney(selectedOutstanding - amount)),
+      overAfter: Math.max(0, roundMoney(amount - selectedOutstanding)),
+    };
+  }, [memberRows, paymentModal, paymentTargetRows, user]);
+
+  // ====== Member: แนบสลิปรวมจ่ายเงิน ======
+  const handlePayIn = () => {
+    if (!user || paymentTargetRows.length === 0) return;
+    const ownTarget = paymentTargetRows.find((row) => row.userId === user.userId);
+    const firstTarget = ownTarget || paymentTargetRows[0];
+    setPaymentModal({
+      amount: String(firstTarget.outstanding),
+      slipDataUrl: "",
+      selectedIds: [firstTarget.userId],
+    });
+  };
+
+  const closePaymentModal = () => {
+    if (savingPayment) return;
+    setPaymentModal(null);
+  };
+
+  const handlePickPaymentSlip = async () => {
+    const slip = await pickAndCompressSlip();
+    if (!slip) return;
+    setPaymentModal((current) =>
+      current ? { ...current, slipDataUrl: slip } : current
+    );
+  };
+
+  const togglePaymentTarget = (targetId) => {
+    setPaymentModal((current) => {
+      if (!current) return current;
+      const exists = current.selectedIds.includes(targetId);
+      const selectedIds = exists
+        ? current.selectedIds.filter((id) => id !== targetId)
+        : [...current.selectedIds, targetId];
+      const selectedOutstanding = paymentTargetRows
+        .filter((row) => selectedIds.includes(row.userId))
+        .reduce((sum, row) => sum + row.outstanding, 0);
+      return {
+        ...current,
+        selectedIds,
+        amount: selectedIds.length ? String(roundMoney(selectedOutstanding)) : current.amount,
+      };
+    });
+  };
+
+  const handleSubmitPayment = async (event) => {
+    event.preventDefault();
+    if (!paymentModal || fileSubmittingRef.current) return;
+    if (!paymentModal.slipDataUrl) {
+      Swal.fire("ยังไม่มีสลิป", "แนบรูปสลิปก่อนส่งให้ฝ่ายการเงินตรวจ", "info");
+      return;
+    }
+    if (!paymentDraft.amount || paymentDraft.amount <= 0) {
+      Swal.fire("กรอกยอดที่จ่าย", "ระบุจำนวนเงินที่โอนมากกว่า 0", "info");
+      return;
+    }
+    if (paymentModal.selectedIds.length === 0) {
+      Swal.fire("เลือกผู้รับยอด", "เลือกตัวเองหรือเพื่อนที่ต้องการจ่ายแทนอย่างน้อย 1 คน", "info");
+      return;
+    }
+    if (paymentDraft.allocations.length === 0) {
+      Swal.fire("เลือกผู้รับยอด", "เลือกตัวเองหรือเพื่อนที่ต้องการจ่ายแทนอย่างน้อย 1 คน", "info");
+      return;
+    }
+
     fileSubmittingRef.current = true;
+    setSavingPayment(true);
     try {
-      const slip = await pickAndCompressSlip();
-      if (!slip) return;
       await submitPayment(gid, {
         userId: user.userId,
         userName: user.name,
-        amount: outstanding,
-        slipDataUrl: slip,
+        amount: paymentDraft.amount,
+        slipDataUrl: paymentModal.slipDataUrl,
+        allocations: paymentDraft.allocations.map((allocation) => ({
+          userId: allocation.userId,
+          userName: allocation.userName,
+          amount: allocation.amount,
+          outstandingBefore: allocation.outstandingBefore,
+        })),
       });
-      toast("success", "ส่งสลิปแล้ว รอตรวจสอบ");
+      setPaymentModal(null);
+      toast("success", `ส่งสลิปรวมแล้ว (${money(paymentDraft.amount)})`);
       reload();
     } finally {
       fileSubmittingRef.current = false;
+      setSavingPayment(false);
     }
   };
 
@@ -163,7 +313,7 @@ function FinanceTab({ group, gid }) {
     const suggested = payment.geminiCheck?.foundAmount ?? payment.amount;
     const { value } = await Swal.fire({
       title: "ยอดที่ได้รับจริง",
-      html: `<small class="text-muted">ยอดที่สมาชิกอ้าง: <strong>${money(payment.amount)}</strong></small>`,
+      html: `<small class="text-muted">ยอดสลิปรวมที่สมาชิกส่ง: <strong>${money(payment.amount)}</strong></small>`,
       input: "number",
       inputValue: suggested,
       inputAttributes: { min: 0, step: 0.01 },
@@ -291,7 +441,7 @@ function FinanceTab({ group, gid }) {
   if (loading) return <div className="soft-card empty-state">กำลังโหลด...</div>;
 
   const totalPaidIn = payments.filter((p) => p.status === "verified")
-    .reduce((s, p) => s + Number(p.amount || 0), 0);
+    .reduce((s, p) => s + paymentTotalAmount(p), 0);
   const totalPaidOut = payouts.filter((p) => p.status === "confirmed")
     .reduce((s, p) => s + Number(p.amount || 0), 0);
   const pendingQueue = payments.filter((p) => p.status === "pending");
@@ -348,6 +498,8 @@ function FinanceTab({ group, gid }) {
       {/* ===== Member Dashboard (FR-1.3) — เห็นเฉพาะของตัวเอง ===== */}
       {me && (() => {
         const outstanding = getOutstanding(me, payments);
+        const paidIn = totalVerifiedPaid(me.userId, payments);
+        const overpaid = getOverpaid(me, payments);
         const payoutRem = getPayoutRemaining(me, payouts);
         return (
           <section className="soft-card p-3 p-md-4 me-dashboard">
@@ -358,24 +510,25 @@ function FinanceTab({ group, gid }) {
             <div className="me-stats">
               <div><small>สำรองจ่ายไป</small><strong>{money(me.paid)}</strong></div>
               <div><small>ส่วนที่ต้องหาร</small><strong>{money(me.share)}</strong></div>
+              <div><small>จ่ายเข้ากลางแล้ว</small><strong>{money(paidIn)}</strong></div>
               <div>
                 <small>
-                  {me.net >= 0 ? "รอรับคืน (คงเหลือ)" : "ค้างจ่าย (คงเหลือ)"}
+                  {me.net >= 0 ? "รอรับคืน (คงเหลือ)" : overpaid > 0 ? "จ่ายเกิน" : "ค้างจ่าย (คงเหลือ)"}
                 </small>
-                <strong className={me.net >= 0 ? "text-success" : "text-danger"}>
-                  {money(me.net >= 0 ? payoutRem : outstanding)}
+                <strong className={me.net >= 0 || overpaid > 0 ? "text-success" : "text-danger"}>
+                  {money(me.net >= 0 ? payoutRem : overpaid > 0 ? overpaid : outstanding)}
                 </strong>
               </div>
             </div>
 
-            {me.net < 0 && outstanding > 0 && !myPendingPayment && (
+            {paymentTargetRows.length > 0 && (
               <button className="btn btn-success w-100 mt-3" onClick={handlePayIn}>
-                ชำระเงิน + แนบสลิป ({money(outstanding)})
+                แนบสลิปรวม + ระบุยอด
               </button>
             )}
-            {myPendingPayment && (
+            {myPendingPayments.length > 0 && (
               <p className="text-muted mt-3 mb-0 small">
-                ส่งสลิปแล้ว ({money(myPendingPayment.amount)}) — รอฝ่ายการเงินตรวจ
+                คุณส่งสลิปรอตรวจ {myPendingPayments.length} รายการ · ระบบจะนับยอดหลังฝ่ายการเงินอนุมัติ
               </p>
             )}
             {myAwaitingPayout && (
@@ -399,6 +552,8 @@ function FinanceTab({ group, gid }) {
             {memberRows.map((r) => {
               const payoutRem = getPayoutRemaining(r, payouts);
               const outstanding = getOutstanding(r, payments);
+              const paidIn = totalVerifiedPaid(r.userId, payments);
+              const overpaid = getOverpaid(r, payments);
               // บิลที่คนนี้เป็น payer → "ค่าอะไรบ้างที่ค้างคืน"
               const billsAsPayer = bills.filter((b) => b.payerId === r.userId);
               return (
@@ -408,7 +563,7 @@ function FinanceTab({ group, gid }) {
                       <img src={r.picture || "https://via.placeholder.com/30"} alt={r.name} className="avatar" />
                       <div className="min-w-0">
                         <strong>{r.name}</strong>
-                        <small>จ่าย {money(r.paid)} · หาร {money(r.share)}</small>
+                        <small>สำรอง {money(r.paid)} · หาร {money(r.share)} · จ่ายกลาง {money(paidIn)}</small>
                       </div>
                     </div>
                     <StatusPill status={r.status} />
@@ -421,8 +576,12 @@ function FinanceTab({ group, gid }) {
                       </span>
                     )}
                     {r.net < -0.01 && (
-                      <span className="text-danger fw-bold">
-                        - {money(outstanding)} {outstanding < Math.abs(r.net) ? `/ ${money(Math.abs(r.net))}` : ""} (ต้องจ่าย)
+                      <span className={`${overpaid > 0 ? "text-primary" : outstanding > 0 ? "text-danger" : "text-success"} fw-bold`}>
+                        {overpaid > 0
+                          ? `จ่ายเกิน ${money(overpaid)}`
+                          : outstanding > 0
+                            ? `เหลือ ${money(outstanding)} / ${money(Math.abs(r.net))} (ต้องจ่าย)`
+                            : `จ่ายครบ ${money(Math.abs(r.net))}`}
                       </span>
                     )}
                     {Math.abs(r.net) < 0.01 && <span className="text-muted">สมดุล</span>}
@@ -465,36 +624,49 @@ function FinanceTab({ group, gid }) {
             <p className="text-muted mb-0 small">ไม่มีรายการรอตรวจ</p>
           ) : (
             <div className="queue-list">
-              {pendingQueue.map((p) => (
-                <article key={p.id} className="slip-card">
-                  <img
-                    src={p.slipDataUrl}
-                    alt="slip"
-                    className="slip-thumb"
-                    onClick={() => openImage(p.slipDataUrl, `slip-${p.id}.jpg`)}
-                    role="button"
-                    tabIndex={0}
-                  />
-                  <div className="slip-info">
-                    <div className="d-flex justify-content-between gap-2">
-                      <div>
-                        <strong>{p.userName}</strong>
-                        <small className="d-block text-muted">ยอดที่อ้าง {money(p.amount)}</small>
+              {pendingQueue.map((p) => {
+                const allocations = getPaymentAllocations(p);
+                return (
+                  <article key={p.id} className="slip-card">
+                    <img
+                      src={p.slipDataUrl}
+                      alt="slip"
+                      className="slip-thumb"
+                      onClick={() => openImage(p.slipDataUrl, `slip-${p.id}.jpg`)}
+                      role="button"
+                      tabIndex={0}
+                    />
+                    <div className="slip-info">
+                      <div className="d-flex justify-content-between gap-2">
+                        <div>
+                          <strong>{p.userName}</strong>
+                          <small className="d-block text-muted">สลิปรวม {money(p.amount)}</small>
+                        </div>
+                        <StatusPill status={STATUS.PENDING_VERIFICATION} />
                       </div>
-                      <StatusPill status={STATUS.PENDING_VERIFICATION} />
-                    </div>
 
-                    {p.geminiCheck && (
-                      <div className={`gemini-result ${p.geminiCheck.suspicious ? "is-warn" : "is-good"}`}>
-                        <strong>AI:</strong> ยอด {p.geminiCheck.foundAmount ?? "?"} · บช. {p.geminiCheck.foundAccount || "?"}<br />
-                        ตรงยอด: {p.geminiCheck.matchAmount ? "✓" : "✗"} · ตรงบช.: {p.geminiCheck.matchAccount ? "✓" : "✗"}
-                        {p.geminiCheck.suspicious && " · ⚠ น่าสงสัย"}
-                        <em className="d-block small mt-1">{p.geminiCheck.reason}</em>
-                      </div>
-                    )}
+                      {allocations.length > 0 && (
+                        <div className="payment-allocation-list">
+                          {allocations.map((allocation) => (
+                            <div key={allocation.userId} className="payment-allocation-row">
+                              <span>{allocation.userName}</span>
+                              <strong>{money(allocation.amount)}</strong>
+                            </div>
+                          ))}
+                        </div>
+                      )}
 
-                    <div className="d-flex gap-2 flex-wrap mt-2">
-                      {isGeminiEnabled() && !p.geminiCheck && (
+                      {p.geminiCheck && (
+                        <div className={`gemini-result ${p.geminiCheck.suspicious ? "is-warn" : "is-good"}`}>
+                          <strong>AI:</strong> ยอด {p.geminiCheck.foundAmount ?? "?"} · บช. {p.geminiCheck.foundAccount || "?"}<br />
+                          ตรงยอด: {p.geminiCheck.matchAmount ? "✓" : "✗"} · ตรงบช.: {p.geminiCheck.matchAccount ? "✓" : "✗"}
+                          {p.geminiCheck.suspicious && " · ⚠ น่าสงสัย"}
+                          <em className="d-block small mt-1">{p.geminiCheck.reason}</em>
+                        </div>
+                      )}
+
+                      <div className="d-flex gap-2 flex-wrap mt-2">
+                        {isGeminiEnabled() && !p.geminiCheck && (
                         <button
                           className="btn btn-sm btn-outline-primary"
                           onClick={() => handleAiCheck(p)}
@@ -526,7 +698,8 @@ function FinanceTab({ group, gid }) {
                     </div>
                   </div>
                 </article>
-              ))}
+                );
+              })}
             </div>
           )}
         </section>
@@ -543,18 +716,24 @@ function FinanceTab({ group, gid }) {
               const actual = Number(p.actualAmount);
               const claimed = Number(p.amount);
               const showActual = p.status === "verified" && !Number.isNaN(actual) && Math.abs(actual - claimed) > 0.01;
+              const allocations = getPaymentAllocations(p);
               return (
                 <div key={`pay-${p.id}`} className="history-row">
                   <span className="history-label">เข้า</span>
                   <span className="history-name">
                     {p.userName}
+                    {allocations.length > 0 && (
+                      <small className="d-block text-muted">
+                        จ่ายให้ {allocations.map((allocation) => `${allocation.userName} ${money(allocation.amount)}`).join(" · ")}
+                      </small>
+                    )}
                     {showActual && (
                       <small className="d-block text-muted">
                         อ้าง {money(claimed)} · จริง {money(actual)}
                       </small>
                     )}
                   </span>
-                  <span className="history-amount text-success">+ {money(p.actualAmount ?? p.amount)}</span>
+                  <span className="history-amount text-success">+ {money(paymentTotalAmount(p))}</span>
                   <span className={`pay-status pay-status-${p.status === "verified" ? "paid" : p.status === "rejected" ? "unpaid" : "partial"}`}>
                     {p.status === "verified" ? "อนุมัติ" : p.status === "rejected" ? "ปฏิเสธ" : "รอตรวจ"}
                   </span>
@@ -602,6 +781,155 @@ function FinanceTab({ group, gid }) {
           </div>
         )}
       </section>
+
+      {paymentModal && (
+        <div
+          className="payout-modal"
+          role="dialog"
+          aria-modal="true"
+          onClick={closePaymentModal}
+        >
+          <form className="payout-dialog payment-dialog" onSubmit={handleSubmitPayment} onClick={(e) => e.stopPropagation()}>
+            <div className="payout-dialog-head">
+              <div className="min-w-0">
+                <h3>แนบสลิปรวม</h3>
+                <p>เลือกคนที่จ่ายแทนได้หลายคนในสลิปเดียว</p>
+              </div>
+              <button
+                type="button"
+                className="payout-dialog-close"
+                onClick={closePaymentModal}
+                aria-label="ปิด"
+                disabled={savingPayment}
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="payout-slip-panel">
+              {paymentModal.slipDataUrl ? (
+                <button
+                  type="button"
+                  className="payout-slip-preview"
+                  onClick={() => openImage(paymentModal.slipDataUrl, `payment-${user?.userId}.jpg`)}
+                  title="ดูสลิป"
+                >
+                  <img src={paymentModal.slipDataUrl} alt="สลิปโอนเข้ากลาง" />
+                </button>
+              ) : (
+                <button type="button" className="payout-slip-empty" onClick={handlePickPaymentSlip}>
+                  <span>แนบสลิปโอนเข้ากลาง</span>
+                  <small>แตะเพื่อเลือกรูป</small>
+                </button>
+              )}
+              <button
+                type="button"
+                className="btn btn-sm btn-light border"
+                onClick={handlePickPaymentSlip}
+                disabled={savingPayment}
+              >
+                {paymentModal.slipDataUrl ? "เปลี่ยนรูป" : "เลือกรูปสลิป"}
+              </button>
+            </div>
+
+            <label className="payout-amount-field">
+              <span>จำนวนเงินที่จ่ายจริงในสลิป</span>
+              <input
+                type="number"
+                min="0.01"
+                step="0.01"
+                className="form-control"
+                value={paymentModal.amount}
+                onChange={(e) =>
+                  setPaymentModal((current) =>
+                    current ? { ...current, amount: e.target.value } : current
+                  )
+                }
+                disabled={savingPayment}
+              />
+            </label>
+
+            <div className="payment-target-panel">
+              <div className="payment-target-head">
+                <strong>จ่ายแทนใครบ้าง</strong>
+                <small>ระบบจะกระจายยอดจากบนลงล่างตามยอดค้าง</small>
+              </div>
+              <div className="payment-target-list">
+                {paymentTargetRows.map((target) => {
+                  const checked = paymentModal.selectedIds.includes(target.userId);
+                  return (
+                    <label key={target.userId} className={`payment-target ${checked ? "is-on" : ""}`}>
+                      <input
+                        type="checkbox"
+                        className="form-check-input"
+                        checked={checked}
+                        onChange={() => togglePaymentTarget(target.userId)}
+                        disabled={savingPayment}
+                      />
+                      <img src={target.picture || "https://via.placeholder.com/30"} alt={target.name} className="avatar" />
+                      <span className="payment-target-name">
+                        <strong>{target.userId === user?.userId ? "คุณ" : target.name}</strong>
+                        <small>ค้าง {money(target.outstanding)}</small>
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="payment-modal-summary">
+              <div>
+                <small>ยอดในสลิป</small>
+                <strong>{money(paymentDraft.amount)}</strong>
+              </div>
+              <div>
+                <small>ยังเหลือหลังสลิปนี้</small>
+                <strong className={paymentDraft.remainingAfter > 0 ? "text-danger" : "text-success"}>
+                  {money(paymentDraft.remainingAfter)}
+                </strong>
+              </div>
+              <div>
+                <small>จ่ายเกิน</small>
+                <strong className={paymentDraft.overAfter > 0 ? "text-primary" : "text-muted"}>
+                  {money(paymentDraft.overAfter)}
+                </strong>
+              </div>
+            </div>
+
+            {paymentDraft.allocations.length > 0 && (
+              <div className="payment-allocation-list">
+                {paymentDraft.allocations.map((allocation) => (
+                  <div key={allocation.userId} className="payment-allocation-row">
+                    <span>
+                      {allocation.userId === user?.userId ? "คุณ" : allocation.userName}
+                      {allocation.isExcess && <small> · ยอดเกินเข้าบัญชีผู้จ่าย</small>}
+                    </span>
+                    <strong>
+                      {money(allocation.amount)}
+                      {allocation.remainingAfter > 0 && ` · เหลือ ${money(allocation.remainingAfter)}`}
+                      {allocation.overAfter > 0 && ` · เกิน ${money(allocation.overAfter)}`}
+                    </strong>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="payout-dialog-actions">
+              <button
+                type="button"
+                className="btn btn-light border"
+                onClick={closePaymentModal}
+                disabled={savingPayment}
+              >
+                ยกเลิก
+              </button>
+              <button type="submit" className="btn btn-success" disabled={savingPayment}>
+                {savingPayment ? "กำลังส่ง..." : "ส่งให้ฝ่ายการเงินตรวจ"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {payoutModal && (
         <div

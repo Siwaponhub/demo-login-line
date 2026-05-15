@@ -10,6 +10,7 @@ export const THEMES = [
   { id: "sunset", name: "Sunset Glow", desc: "ส้มอุ่นอบอุ่น เพิ่มพลังบวก", swatch: ["#f59f00", "#e8590c"] },
   { id: "violet", name: "Violet Dream", desc: "ม่วงทันสมัย ดูสร้างสรรค์", swatch: ["#845ef7", "#5f3dc4"] },
   { id: "midnight", name: "Midnight", desc: "โหมดมืดสบายตายามค่ำคืน", swatch: ["#0f1726", "#22d3ee"] },
+  { id: "liquid-glass", name: "Liquid Glass", desc: "กระจกใส เบลอแบบ iOS", swatch: ["#f8fbff", "#7dd3fc"] },
 ];
 
 export const CUSTOM_THEME_ID = "custom";
