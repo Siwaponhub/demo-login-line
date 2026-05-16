@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { collection, deleteField, doc, getDoc, getDocs } from "firebase/firestore";
 import Swal from "sweetalert2";
@@ -6,12 +6,14 @@ import { db } from "../firebase";
 import { createBill, deleteBill, getBills, updateBill } from "../services/billService";
 import { isFinance } from "../services/financeService";
 import { useAuth } from "../AuthContext";
+import { resizeImageToDataURL } from "../utils/image";
 import BackHomeButtons from "./BackHomeButtons";
 
 const emptyBill = {
   title: "",
   amount: "",
   payerId: "",
+  evidenceImage: "",
   participants: [],
 };
 
@@ -85,6 +87,13 @@ function BillManager() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [activeBillId, setActiveBillId] = useState(null);
+<<<<<<< HEAD
+=======
+  const [paidDrafts, setPaidDrafts] = useState({}); // billId -> { userId: paidValue }
+  const [savingPayments, setSavingPayments] = useState(false);
+  const [uploadingEvidence, setUploadingEvidence] = useState(false);
+  const evidenceInputRef = useRef(null);
+>>>>>>> feature/financial
 
   const isGroupRoute = Boolean(id);
   const members = useMemo(() => group?.members || [], [group]);
@@ -215,6 +224,39 @@ function BillManager() {
     setForm((current) => ({ ...current, [field]: value }));
   };
 
+  const chooseEvidenceImage = () => {
+    evidenceInputRef.current?.click();
+  };
+
+  const handleEvidenceImage = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      Swal.fire("ไฟล์ใหญ่เกินไป", "ขนาดรูปหลักฐานไม่ควรเกิน 5MB", "info");
+      return;
+    }
+
+    try {
+      setUploadingEvidence(true);
+      let dataUrl = await resizeImageToDataURL(file, { maxSize: 960, quality: 0.82 });
+      if (dataUrl.length > 850000) {
+        dataUrl = await resizeImageToDataURL(file, { maxSize: 720, quality: 0.72 });
+      }
+      if (dataUrl.length > 850000) {
+        Swal.fire("รูปยังใหญ่เกินไป", "ลองเลือกรูปที่ขนาดเล็กลงหรือครอปรูปก่อนอัปโหลด", "info");
+        return;
+      }
+      updateForm("evidenceImage", dataUrl);
+    } catch (err) {
+      console.error(err);
+      Swal.fire("เกิดข้อผิดพลาด", "อัปโหลดรูปหลักฐานไม่สำเร็จ", "error");
+    } finally {
+      setUploadingEvidence(false);
+    }
+  };
+
   const resetForm = () => {
     setForm({
       ...emptyBill,
@@ -339,6 +381,7 @@ function BillManager() {
       amount,
       payerId: form.payerId,
       payerName: payer?.name || "",
+      evidenceImage: form.evidenceImage || "",
       participants: participantsWithPaid,
       updatedBy: user.userId,
     };
@@ -378,6 +421,7 @@ function BillManager() {
       title: bill.title || "",
       amount: bill.amount || "",
       payerId: bill.payerId || user?.userId || "",
+      evidenceImage: bill.evidenceImage || "",
       participants: (bill.participants || []).map((p) => ({
         userId: p.userId,
         name: p.name,
@@ -411,6 +455,100 @@ function BillManager() {
     });
   };
 
+<<<<<<< HEAD
+=======
+  const showEvidencePreview = (bill) => {
+    if (!bill?.evidenceImage) return;
+    Swal.fire({
+      title: bill.title || "รูปหลักฐานบิล",
+      imageUrl: bill.evidenceImage,
+      imageAlt: bill.title || "รูปหลักฐานบิล",
+      confirmButtonText: "ปิด",
+      width: 680,
+    });
+  };
+
+  // === Payment editing ===
+
+  const draftFor = (bill, userId) => {
+    const drafts = paidDrafts[bill.id];
+    if (drafts && Object.prototype.hasOwnProperty.call(drafts, userId)) {
+      return drafts[userId];
+    }
+    const p = bill.participants?.find((x) => x.userId === userId);
+    return Number(p?.paid || 0);
+  };
+
+  const setDraft = (billId, userId, value) => {
+    setPaidDrafts((prev) => ({
+      ...prev,
+      [billId]: { ...(prev[billId] || {}), [userId]: value },
+    }));
+  };
+
+  const markPaidFull = (bill, p) => {
+    setDraft(bill.id, p.userId, Number(p.share || 0));
+  };
+
+  const markPaidZero = (bill, p) => {
+    setDraft(bill.id, p.userId, 0);
+  };
+
+  const hasUnsavedPayments = (bill) => {
+    const drafts = paidDrafts[bill.id];
+    if (!drafts) return false;
+    return Object.entries(drafts).some(([uid, v]) => {
+      const p = bill.participants?.find((x) => x.userId === uid);
+      return Number(p?.paid || 0) !== Number(v || 0);
+    });
+  };
+
+  const savePayments = async (bill) => {
+    const drafts = paidDrafts[bill.id] || {};
+    const updatedParticipants = (bill.participants || []).map((p) => ({
+      ...p,
+      paid: Object.prototype.hasOwnProperty.call(drafts, p.userId)
+        ? Number(drafts[p.userId]) || 0
+        : Number(p.paid) || 0,
+    }));
+    try {
+      setSavingPayments(true);
+      await updateBill(id, bill.id, {
+        ...bill,
+        participants: updatedParticipants,
+        updatedBy: user.userId,
+      });
+      setBills((prev) =>
+        prev.map((b) =>
+          b.id === bill.id ? { ...b, participants: updatedParticipants } : b
+        )
+      );
+      setPaidDrafts((prev) => {
+        const next = { ...prev };
+        delete next[bill.id];
+        return next;
+      });
+      Swal.fire({
+        toast: true, position: "top", icon: "success",
+        title: "บันทึกการชำระแล้ว", showConfirmButton: false, timer: 1400,
+      });
+    } catch (err) {
+      console.error(err);
+      Swal.fire("เกิดข้อผิดพลาด", "บันทึกการชำระไม่สำเร็จ", "error");
+    } finally {
+      setSavingPayments(false);
+    }
+  };
+
+  const discardPayments = (billId) => {
+    setPaidDrafts((prev) => {
+      const next = { ...prev };
+      delete next[billId];
+      return next;
+    });
+  };
+
+>>>>>>> feature/financial
   // === Render group picker (no group route) ===
 
 
@@ -555,6 +693,52 @@ function BillManager() {
             </div>
           </div>
 
+          <div className="bill-evidence-field mt-3">
+            <div className="d-flex justify-content-between align-items-center gap-2 mb-2">
+              <label className="form-label fw-bold mb-0">รูปหลักฐานบิล</label>
+              <span className="text-muted small">ไม่บังคับ</span>
+            </div>
+            <div className={`bill-evidence-uploader ${form.evidenceImage ? "has-image" : ""}`}>
+              {form.evidenceImage ? (
+                <img src={form.evidenceImage} alt="รูปหลักฐานบิล" />
+              ) : (
+                <div className="bill-evidence-empty">
+                  <strong>ยังไม่มีรูปหลักฐาน</strong>
+                  <small>รองรับ JPG / PNG / WebP ขนาดไม่เกิน 5MB</small>
+                </div>
+              )}
+              <div className="bill-evidence-actions">
+                <button
+                  type="button"
+                  className="btn btn-sm btn-outline-success"
+                  onClick={chooseEvidenceImage}
+                  disabled={uploadingEvidence}
+                >
+                  {uploadingEvidence
+                    ? "กำลังอัปโหลด..."
+                    : form.evidenceImage ? "เปลี่ยนรูป" : "เพิ่มรูป"}
+                </button>
+                {form.evidenceImage && (
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-light border"
+                    onClick={() => updateForm("evidenceImage", "")}
+                    disabled={uploadingEvidence}
+                  >
+                    ลบรูป
+                  </button>
+                )}
+              </div>
+              <input
+                ref={evidenceInputRef}
+                type="file"
+                accept="image/*"
+                hidden
+                onChange={handleEvidenceImage}
+              />
+            </div>
+          </div>
+
           <div className="d-flex justify-content-between align-items-center gap-2 mt-3">
             <h3 className="h6 fw-bold mb-0">สมาชิกที่ร่วมบิล</h3>
             <div className="d-flex gap-2">
@@ -688,6 +872,31 @@ function BillManager() {
                       <strong>{money(activeBill.amount)}</strong>
                     </div>
                   </div>
+
+                  {activeBill.evidenceImage && (
+                    <div className="bill-evidence-view">
+                      <button
+                        type="button"
+                        className="bill-evidence-thumb"
+                        onClick={() => showEvidencePreview(activeBill)}
+                      >
+                        <img
+                          src={activeBill.evidenceImage}
+                          alt={`รูปหลักฐานบิล ${activeBill.title}`}
+                        />
+                      </button>
+                      <div className="bill-evidence-meta">
+                        <strong>รูปหลักฐานบิล</strong>
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-light border"
+                          onClick={() => showEvidencePreview(activeBill)}
+                        >
+                          ดูรูป
+                        </button>
+                      </div>
+                    </div>
+                  )}
 
                   <div className="bill-participants">
                     <div className="bill-section-title">

@@ -2062,6 +2062,7 @@ img:not(.img-viewer-img) {
   overflow-wrap: anywhere;
 }
 
+<<<<<<< HEAD
 .bill-card-meta {
   flex: 0 0 auto;
   max-width: 46%;
@@ -2087,6 +2088,113 @@ img:not(.img-viewer-img) {
 
 .bill-slip-link:hover {
   background: var(--accent-soft);
+=======
+.bill-evidence-field {
+  min-width: 0;
+}
+
+.bill-evidence-uploader {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px dashed var(--border);
+  border-radius: 14px;
+  background: var(--surface-mute);
+}
+
+.bill-evidence-uploader.has-image {
+  align-items: flex-start;
+  border-style: solid;
+  background: var(--surface);
+}
+
+.bill-evidence-uploader > img {
+  flex: 0 0 auto;
+  width: 132px;
+  height: 96px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-soft);
+  object-fit: cover;
+}
+
+.bill-evidence-empty {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 82px;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  color: var(--text);
+}
+
+.bill-evidence-empty strong {
+  font-size: 0.95rem;
+  font-weight: 850;
+}
+
+.bill-evidence-empty small {
+  color: var(--text-muted);
+}
+
+.bill-evidence-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex: 1 0 auto;
+  flex-wrap: wrap;
+}
+
+.bill-evidence-view {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface-mute);
+}
+
+.bill-evidence-thumb {
+  flex: 0 0 auto;
+  width: 124px;
+  height: 84px;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.bill-evidence-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.bill-evidence-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.bill-evidence-meta strong {
+  min-width: 0;
+  color: var(--text);
+  font-weight: 850;
+>>>>>>> feature/financial
 }
 
 .bill-participants {
@@ -3739,6 +3847,7 @@ img:not(.img-viewer-img) {
     text-align: left;
   }
 
+<<<<<<< HEAD
   .bill-card-meta {
     max-width: 100%;
     justify-items: start;
@@ -3746,6 +3855,24 @@ img:not(.img-viewer-img) {
 
   .bill-card-meta > strong {
     margin-top: 10px;
+=======
+  .bill-evidence-uploader,
+  .bill-evidence-view {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .bill-evidence-uploader > img,
+  .bill-evidence-thumb {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 4 / 3;
+  }
+
+  .bill-evidence-actions {
+    width: 100%;
+    justify-content: flex-start;
+>>>>>>> feature/financial
   }
 
   .bill-participant-row {
