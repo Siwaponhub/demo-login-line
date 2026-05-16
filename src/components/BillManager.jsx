@@ -87,13 +87,11 @@ function BillManager() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [activeBillId, setActiveBillId] = useState(null);
-<<<<<<< HEAD
-=======
+
   const [paidDrafts, setPaidDrafts] = useState({}); // billId -> { userId: paidValue }
   const [savingPayments, setSavingPayments] = useState(false);
   const [uploadingEvidence, setUploadingEvidence] = useState(false);
   const evidenceInputRef = useRef(null);
->>>>>>> feature/financial
 
   const isGroupRoute = Boolean(id);
   const members = useMemo(() => group?.members || [], [group]);
@@ -455,8 +453,6 @@ function BillManager() {
     });
   };
 
-<<<<<<< HEAD
-=======
   const showEvidencePreview = (bill) => {
     if (!bill?.evidenceImage) return;
     Swal.fire({
@@ -548,7 +544,7 @@ function BillManager() {
     });
   };
 
->>>>>>> feature/financial
+
   // === Render group picker (no group route) ===
 
 
