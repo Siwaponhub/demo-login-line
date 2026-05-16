@@ -1926,6 +1926,102 @@ img:not(.img-viewer-img) {
   flex: 0 0 auto;
 }
 
+/* Finance team chips (แสดงผู้คุมบัญชีบนสุดของแท็บการเงิน) */
+
+.finance-team {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface-soft);
+  box-shadow: var(--shadow-sm);
+}
+
+.finance-team-label {
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.finance-team-list {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.finance-team-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px 4px 4px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: var(--text);
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.finance-team-chip:hover {
+  border-color: var(--accent);
+  box-shadow: 0 4px 12px var(--accent-soft);
+}
+
+.finance-team-chip.is-owner {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.finance-team-chip img {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex: 0 0 auto;
+}
+
+.finance-team-name {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.finance-team-chip small {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--surface-mute);
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+
+.finance-team-chip.is-owner small {
+  background: var(--accent);
+  color: #fff;
+}
+
+@media (max-width: 540px) {
+  .finance-team {
+    padding: 10px;
+  }
+  .finance-team-name {
+    max-width: 100px;
+  }
+}
+
 @media (max-width: 540px) {
   .me-stats {
     grid-template-columns: 1fr;
@@ -2840,6 +2936,71 @@ img:not(.img-viewer-img) {
 
 .profile-bank-field .form-control {
   min-height: 42px;
+}
+
+/* QR section ในบัญชีโปรไฟล์ */
+.profile-bank-qr {
+  grid-column: 1 / -1;
+}
+
+.profile-qr-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 12px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 14px;
+  background: var(--surface-mute);
+}
+
+.profile-qr-preview {
+  width: 120px;
+  height: 120px;
+  border-radius: 12px;
+  background: #fff;
+  padding: 6px;
+  object-fit: contain;
+  border: 1px solid var(--border);
+  cursor: zoom-in;
+  transition: transform 160ms ease;
+  flex: 0 0 auto;
+}
+
+.profile-qr-preview:hover {
+  transform: scale(1.03);
+}
+
+.profile-qr-placeholder {
+  display: grid;
+  place-items: center;
+  gap: 6px;
+  width: 120px;
+  height: 120px;
+  border-radius: 12px;
+  border: 1px dashed var(--border-strong);
+  background: var(--surface);
+  color: var(--text-faint);
+  flex: 0 0 auto;
+}
+
+.profile-qr-placeholder small {
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+
+.profile-qr-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.profile-qr-actions small {
+  flex-basis: 100%;
+  font-size: 0.78rem;
 }
 
 .profile-bank-actions {
