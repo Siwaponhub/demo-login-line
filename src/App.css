@@ -1164,6 +1164,54 @@
   border-top: 1px solid var(--border);
 }
 
+.bill-log-head {
+  display: grid;
+  gap: 10px;
+}
+
+.bill-log-head small {
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.bill-log-filters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.bill-log-filter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-height: 34px;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  font-weight: 850;
+}
+
+.bill-log-filter small {
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: inherit;
+  text-align: center;
+  font-size: 0.68rem;
+}
+
+.bill-log-filter.is-active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
 .bill-log-list {
   display: grid;
   gap: 8px;
@@ -1219,6 +1267,20 @@
   font-size: 0.78rem;
   font-weight: 850;
   white-space: nowrap;
+}
+
+.bill-log-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.bill-log-pager span {
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  font-weight: 800;
 }
 
 /* ============================================================

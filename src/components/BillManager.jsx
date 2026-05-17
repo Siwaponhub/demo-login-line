@@ -17,6 +17,14 @@ const emptyBill = {
   participants: [],
 };
 
+const HISTORY_PAGE_SIZE = 5;
+const HISTORY_FILTERS = [
+  { id: "all", label: "ทั้งหมด" },
+  { id: "payment", label: "ชำระเข้า" },
+  { id: "payout", label: "จ่ายคืน" },
+  { id: "bill", label: "บันทึกบิล" },
+];
+
 const money = (amount) =>
   Number(amount || 0).toLocaleString("th-TH", {
     minimumFractionDigits: 0,
@@ -261,6 +269,12 @@ function payoutHistoryType(status) {
   return status === "confirmed" ? "finance_payout_confirmed" : "finance_payout_sent";
 }
 
+function historyFilterKey(log) {
+  if (log.type?.startsWith("finance_payment_")) return "payment";
+  if (log.type?.startsWith("finance_payout_")) return "payout";
+  return "bill";
+}
+
 function BillManager() {
   const { id } = useParams();
   const { user } = useAuth();
@@ -275,6 +289,8 @@ function BillManager() {
   const [showForm, setShowForm] = useState(false);
   const [activeBillId, setActiveBillId] = useState(null);
   const [syncingFinance, setSyncingFinance] = useState(false);
+  const [historyFilter, setHistoryFilter] = useState("all");
+  const [historyPage, setHistoryPage] = useState(1);
 
   const [uploadingEvidence, setUploadingEvidence] = useState(false);
   const evidenceInputRef = useRef(null);
@@ -483,6 +499,42 @@ function BillManager() {
     ].sort((a, b) => toMillis(b.createdAt) - toMillis(a.createdAt)),
     [bills, financeHistoryLogs]
   );
+
+  const historyFilterCounts = useMemo(() => {
+    const counts = { all: allPaymentLogs.length, payment: 0, payout: 0, bill: 0 };
+    allPaymentLogs.forEach((log) => {
+      counts[historyFilterKey(log)] += 1;
+    });
+    return counts;
+  }, [allPaymentLogs]);
+
+  const filteredPaymentLogs = useMemo(
+    () =>
+      historyFilter === "all"
+        ? allPaymentLogs
+        : allPaymentLogs.filter((log) => historyFilterKey(log) === historyFilter),
+    [allPaymentLogs, historyFilter]
+  );
+
+  const historyTotalPages = Math.max(1, Math.ceil(filteredPaymentLogs.length / HISTORY_PAGE_SIZE));
+  const currentHistoryPage = Math.min(historyPage, historyTotalPages);
+  const visiblePaymentLogs = useMemo(() => {
+    const start = (currentHistoryPage - 1) * HISTORY_PAGE_SIZE;
+    return filteredPaymentLogs.slice(start, start + HISTORY_PAGE_SIZE);
+  }, [currentHistoryPage, filteredPaymentLogs]);
+  const historyRangeStart = filteredPaymentLogs.length === 0
+    ? 0
+    : (currentHistoryPage - 1) * HISTORY_PAGE_SIZE + 1;
+  const historyRangeEnd = Math.min(
+    filteredPaymentLogs.length,
+    currentHistoryPage * HISTORY_PAGE_SIZE
+  );
+
+  useEffect(() => {
+    if (historyPage > historyTotalPages) {
+      setHistoryPage(historyTotalPages);
+    }
+  }, [historyPage, historyTotalPages]);
 
   const handleSyncFinanceHistory = async () => {
     if (!canManage || syncingFinance) return;
@@ -1247,24 +1299,76 @@ function BillManager() {
 
           {allPaymentLogs.length > 0 && (
             <div className="bill-log-panel">
-              <h2 className="h5 fw-bold">ประวัติการชำระทั้งหมด</h2>
-              <div className="bill-log-list">
-                {allPaymentLogs.map((log) => (
-                  <article key={`${log.billId}-${log.id}`} className={`bill-log-row type-${log.type}`}>
-                    <div className="bill-log-main">
-                      <strong>{paymentLogText(log)}</strong>
-                      <small>
-                        {formatLogTime(log.createdAt)}
-                        {log.createdByName && ` · บันทึกโดย ${log.createdByName}`}
-                        {log.detail && ` · ${log.detail}`}
-                      </small>
-                    </div>
-                    {Number(log.amount) > 0 && (
-                      <span className="bill-log-amount">{money(log.amount)}</span>
-                    )}
-                  </article>
-                ))}
+              <div className="bill-log-head">
+                <div className="min-w-0">
+                  <h2 className="h5 fw-bold mb-1">ประวัติการชำระทั้งหมด</h2>
+                  <small>
+                    แสดง {historyRangeStart}-{historyRangeEnd} จาก {filteredPaymentLogs.length} รายการ
+                  </small>
+                </div>
+                <div className="bill-log-filters" role="group" aria-label="กรองประวัติการชำระ">
+                  {HISTORY_FILTERS.map((filter) => (
+                    <button
+                      key={filter.id}
+                      type="button"
+                      className={`bill-log-filter ${historyFilter === filter.id ? "is-active" : ""}`}
+                      onClick={() => {
+                        setHistoryFilter(filter.id);
+                        setHistoryPage(1);
+                      }}
+                    >
+                      <span>{filter.label}</span>
+                      <small>{historyFilterCounts[filter.id] || 0}</small>
+                    </button>
+                  ))}
+                </div>
               </div>
+
+              <div className="bill-log-list">
+                {visiblePaymentLogs.length === 0 ? (
+                  <p className="text-muted mb-0 small">ไม่มีประวัติในตัวกรองนี้</p>
+                ) : (
+                  visiblePaymentLogs.map((log) => (
+                    <article key={`${log.billId || "finance"}-${log.id}`} className={`bill-log-row type-${log.type}`}>
+                      <div className="bill-log-main">
+                        <strong>{paymentLogText(log)}</strong>
+                        <small>
+                          {formatLogTime(log.createdAt)}
+                          {log.createdByName && ` · บันทึกโดย ${log.createdByName}`}
+                          {log.detail && ` · ${log.detail}`}
+                        </small>
+                      </div>
+                      {Number(log.amount) > 0 && (
+                        <span className="bill-log-amount">{money(log.amount)}</span>
+                      )}
+                    </article>
+                  ))
+                )}
+              </div>
+
+              {filteredPaymentLogs.length > HISTORY_PAGE_SIZE && (
+                <div className="bill-log-pager">
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-light border"
+                    onClick={() => setHistoryPage((page) => Math.max(1, page - 1))}
+                    disabled={currentHistoryPage <= 1}
+                  >
+                    ก่อนหน้า
+                  </button>
+                  <span>
+                    หน้า {currentHistoryPage} / {historyTotalPages}
+                  </span>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-light border"
+                    onClick={() => setHistoryPage((page) => Math.min(historyTotalPages, page + 1))}
+                    disabled={currentHistoryPage >= historyTotalPages}
+                  >
+                    ถัดไป
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </aside>
