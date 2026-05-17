@@ -122,9 +122,14 @@ function FinanceSettings({ group, gid, onUpdate }) {
   const [accountName, setAccountName] = useState(group.wallet?.accountName || "");
   const [promptpay, setPromptpay] = useState(group.wallet?.promptpay || "");
   const [qrDataUrl, setQrDataUrl] = useState(group.wallet?.qrDataUrl || "");
+  const [walletOwnerId, setWalletOwnerId] = useState(
+    group.wallet?.walletOwnerId || ""
+  );
   const [savingWallet, setSavingWallet] = useState(false);
   const [savingRoles, setSavingRoles] = useState(false);
-  const [profileSourceId, setProfileSourceId] = useState("");
+  const [profileSourceId, setProfileSourceId] = useState(
+    group.wallet?.walletOwnerId || ""
+  );
   const [loadingProfileSource, setLoadingProfileSource] = useState(false);
   const qrInputRef = useRef(null);
   const financeIds = group.financeUserIds || [];
@@ -157,11 +162,14 @@ function FinanceSettings({ group, gid, onUpdate }) {
       setBankName(bankProfile.bankName || "");
       setBankAccount(bankProfile.bankAccount || "");
       setPromptpay(bankProfile.promptpay || "");
+      // copy QR + link wallet owner → FinanceTab จะ fetch QR สดได้
+      if (bankProfile.qrDataUrl) setQrDataUrl(bankProfile.qrDataUrl);
+      setWalletOwnerId(userId);
       Swal.fire({
         toast: true,
         position: "top",
         icon: "success",
-        title: `ดึงบัญชีของ ${member?.name || "สมาชิก"} แล้ว`,
+        title: `ดึงบัญชี + QR ของ ${member?.name || "สมาชิก"} แล้ว`,
         showConfirmButton: false,
         timer: 1400,
       });
@@ -176,7 +184,10 @@ function FinanceSettings({ group, gid, onUpdate }) {
   const saveWallet = async () => {
     setSavingWallet(true);
     try {
-      const wallet = { bankName, bankAccount, accountName, promptpay, qrDataUrl };
+      const wallet = {
+        bankName, bankAccount, accountName, promptpay, qrDataUrl,
+        walletOwnerId: walletOwnerId || "",
+      };
       await updateDoc(doc(db, "groups", gid), { wallet });
       onUpdate({ wallet });
       Swal.fire({ toast: true, position: "top", icon: "success", title: "บันทึกบัญชีกลางแล้ว", showConfirmButton: false, timer: 1400 });
@@ -255,7 +266,13 @@ function FinanceSettings({ group, gid, onUpdate }) {
                 {qrDataUrl ? "เปลี่ยน QR" : "อัปโหลด QR"}
               </button>
               {qrDataUrl && (
-                <button type="button" className="btn btn-light border" onClick={() => setQrDataUrl("")}>ลบ QR</button>
+                <button
+                  type="button"
+                  className="btn btn-light border"
+                  onClick={() => { setQrDataUrl(""); setWalletOwnerId(""); }}
+                >
+                  ลบ QR
+                </button>
               )}
               <input ref={qrInputRef} type="file" accept="image/*" hidden onChange={handleQr} />
             </div>
@@ -777,33 +794,54 @@ function GroupDetail() {
 
             <section className="member-profile-section">
               <h3>บัญชีรับเงิน</h3>
-              {memberProfile.bankProfile?.bankAccount || memberProfile.bankProfile?.promptpay ? (
-                <div className="member-bank-list">
-                  {memberProfile.bankProfile.accountName && (
-                    <div className="member-bank-row">
-                      <span>ชื่อบัญชี</span>
-                      <strong>{memberProfile.bankProfile.accountName}</strong>
-                    </div>
-                  )}
-                  {memberProfile.bankProfile.bankName && (
-                    <div className="member-bank-row">
-                      <span>ธนาคาร</span>
-                      <strong>{memberProfile.bankProfile.bankName}</strong>
-                    </div>
-                  )}
-                  {memberProfile.bankProfile.bankAccount && (
-                    <CopyChip
-                      label="เลขบัญชี"
-                      value={memberProfile.bankProfile.bankAccount}
-                      fullText={memberProfile.bankProfile.bankAccount}
-                    />
-                  )}
-                  {memberProfile.bankProfile.promptpay && (
-                    <CopyChip
-                      label="PromptPay"
-                      value={memberProfile.bankProfile.promptpay}
-                      fullText={memberProfile.bankProfile.promptpay}
-                    />
+              {memberProfile.bankProfile?.bankAccount ||
+              memberProfile.bankProfile?.promptpay ||
+              memberProfile.bankProfile?.qrDataUrl ? (
+                <div className="member-bank-layout">
+                  <div className="member-bank-list">
+                    {memberProfile.bankProfile.accountName && (
+                      <div className="member-bank-row">
+                        <span>ชื่อบัญชี</span>
+                        <strong>{memberProfile.bankProfile.accountName}</strong>
+                      </div>
+                    )}
+                    {memberProfile.bankProfile.bankName && (
+                      <div className="member-bank-row">
+                        <span>ธนาคาร</span>
+                        <strong>{memberProfile.bankProfile.bankName}</strong>
+                      </div>
+                    )}
+                    {memberProfile.bankProfile.bankAccount && (
+                      <CopyChip
+                        label="เลขบัญชี"
+                        value={memberProfile.bankProfile.bankAccount}
+                        fullText={memberProfile.bankProfile.bankAccount}
+                      />
+                    )}
+                    {memberProfile.bankProfile.promptpay && (
+                      <CopyChip
+                        label="PromptPay"
+                        value={memberProfile.bankProfile.promptpay}
+                        fullText={memberProfile.bankProfile.promptpay}
+                      />
+                    )}
+                    {!memberProfile.bankProfile.bankAccount &&
+                      !memberProfile.bankProfile.promptpay && (
+                        <p className="member-profile-empty mb-0">
+                          มีเฉพาะ QR — แตะเพื่อขยายและบันทึกรูป
+                        </p>
+                      )}
+                  </div>
+
+                  {memberProfile.bankProfile.qrDataUrl && (
+                    <figure className="member-bank-qr">
+                      <img
+                        src={memberProfile.bankProfile.qrDataUrl}
+                        alt={`qr-${memberProfile.name || "member"}.jpg`}
+                        title="แตะเพื่อดูใหญ่และบันทึก"
+                      />
+                      <figcaption>QR สำหรับโอน</figcaption>
+                    </figure>
                   )}
                 </div>
               ) : (

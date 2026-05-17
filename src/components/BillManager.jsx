@@ -4,7 +4,7 @@ import { collection, deleteField, doc, getDoc, getDocs } from "firebase/firestor
 import Swal from "sweetalert2";
 import { db } from "../firebase";
 import { createBill, deleteBill, getBills, updateBill } from "../services/billService";
-import { isFinance } from "../services/financeService";
+import { getPayments, isFinance, totalVerifiedPaid } from "../services/financeService";
 import { useAuth } from "../AuthContext";
 import { resizeImageToDataURL } from "../utils/image";
 import BackHomeButtons from "./BackHomeButtons";
@@ -82,6 +82,7 @@ function BillManager() {
   const [groups, setGroups] = useState([]);
   const [group, setGroup] = useState(null);
   const [bills, setBills] = useState([]);
+  const [payments, setPayments] = useState([]);
   const [form, setForm] = useState(emptyBill);
   const [editingId, setEditingId] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -147,9 +148,13 @@ function BillManager() {
         return;
       }
       const groupData = { id: groupSnap.id, ...groupSnap.data() };
-      const nextBills = await getBills(groupId);
+      const [nextBills, nextPayments] = await Promise.all([
+        getBills(groupId),
+        getPayments(groupId).catch(() => []),
+      ]);
       setGroup(groupData);
       setBills(nextBills);
+      setPayments(nextPayments);
       setForm((current) => ({
         ...current,
         payerId: current.payerId || user?.userId || groupData.members?.[0]?.userId || "",
@@ -186,9 +191,11 @@ function BillManager() {
         if (p.userId === bill.payerId) return;
         const remaining = Number(p.share || 0) - Number(p.paid || 0);
         if (Math.abs(remaining) < 0.01) return;
-        const key = `${p.name}->${payerName}`;
+        const key = `${p.userId}->${bill.payerId}`;
         const current = map.get(key) || {
+          debtorId: p.userId,
           debtorName: p.name,
+          payerId: bill.payerId,
           payerName,
           amount: 0,
         };
@@ -199,9 +206,32 @@ function BillManager() {
     return Array.from(map.values()).filter((row) => Math.abs(row.amount) >= 0.01);
   }, [bills, members]);
 
+  // ยอดที่แต่ละ debtor "ต้องจ่ายรวม" (ทุก payer รวมกัน)
+  const totalDebtByDebtor = useMemo(() => {
+    const map = new Map();
+    summaryByPerson.forEach((row) => {
+      if (row.amount <= 0) return;
+      map.set(row.debtorId, (map.get(row.debtorId) || 0) + row.amount);
+    });
+    return map;
+  }, [summaryByPerson]);
+
+  // ซ่อนรายการที่ debtor ส่งสลิปและถูก finance approve ครบแล้ว
+  // (verified actualAmount จาก FinanceTab >= ยอดหนี้ทั้งหมดของคนนั้น)
+  const visibleSummary = useMemo(() => {
+    return summaryByPerson.filter((row) => {
+      const totalOwed = totalDebtByDebtor.get(row.debtorId) || 0;
+      const verifiedPaid = totalVerifiedPaid(row.debtorId, payments);
+      // อนุมัติครบยอดแล้ว → ซ่อนทุกบรรทัดของ debtor นี้
+      return verifiedPaid < totalOwed - 0.01;
+    });
+  }, [summaryByPerson, totalDebtByDebtor, payments]);
+
+  const settledCount = summaryByPerson.length - visibleSummary.length;
+
   const totalRemaining = useMemo(
-    () => summaryByPerson.reduce((sum, row) => sum + Math.max(0, row.amount), 0),
-    [summaryByPerson]
+    () => visibleSummary.reduce((sum, row) => sum + Math.max(0, row.amount), 0),
+    [visibleSummary]
   );
 
   const allPaymentLogs = useMemo(
@@ -975,15 +1005,25 @@ function BillManager() {
         </div>
 
         <aside className="soft-card p-3 p-md-4">
-          <h2 className="h5 fw-bold">สรุปยอดต้องชำระ</h2>
-          {summaryByPerson.length === 0 ? (
-            <p className="text-muted mb-0 small">ทุกบิลชำระสมดุลแล้ว</p>
+          <h2 className="h5 fw-bold mb-1">สรุปยอดต้องชำระ</h2>
+          {settledCount > 0 && (
+            <p className="text-muted small mb-2">
+              <span className="badge text-bg-success me-1">✓</span>
+              ซ่อน {settledCount} รายการที่ฝ่ายการเงินอนุมัติแล้ว
+            </p>
+          )}
+          {visibleSummary.length === 0 ? (
+            <p className="text-muted mb-0 small">
+              {summaryByPerson.length === 0
+                ? "ทุกบิลชำระสมดุลแล้ว"
+                : "ทุกคนชำระและได้รับอนุมัติครบแล้ว ✓"}
+            </p>
           ) : (
             <div className="debt-list">
-              {summaryByPerson.map((row) => {
+              {visibleSummary.map((row) => {
                 const isOver = row.amount < 0;
                 return (
-                  <div key={`${row.debtorName}-${row.payerName}`} className="debt-row">
+                  <div key={`${row.debtorId}-${row.payerId}`} className="debt-row">
                     <div className="debt-row-text">
                       <strong>{row.debtorName}</strong>
                       <small>
