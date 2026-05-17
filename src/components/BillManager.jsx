@@ -4,7 +4,7 @@ import { collection, deleteField, doc, getDoc, getDocs } from "firebase/firestor
 import Swal from "sweetalert2";
 import { db } from "../firebase";
 import { createBill, deleteBill, getBills, updateBill } from "../services/billService";
-import { getPaymentAllocations, getPayments, isFinance } from "../services/financeService";
+import { getPaymentAllocations, getPayments, getPayouts, isFinance } from "../services/financeService";
 import { useAuth } from "../AuthContext";
 import { resizeImageToDataURL } from "../utils/image";
 import BackHomeButtons from "./BackHomeButtons";
@@ -42,6 +42,21 @@ function formatLogTime(value) {
 }
 
 function paymentLogText(log) {
+  if (log.type === "finance_payment_verified") {
+    return `${log.fromName} ชำระเข้าบัญชีกลางแล้ว`;
+  }
+  if (log.type === "finance_payment_pending") {
+    return `${log.fromName} ส่งสลิปรอตรวจ`;
+  }
+  if (log.type === "finance_payment_rejected") {
+    return `ปฏิเสธสลิปของ ${log.fromName}`;
+  }
+  if (log.type === "finance_payout_confirmed") {
+    return `โอนคืนให้ ${log.toName} และยืนยันแล้ว`;
+  }
+  if (log.type === "finance_payout_sent") {
+    return `โอนคืนให้ ${log.toName} แล้ว`;
+  }
   if (log.type === "bill_created") {
     return `${log.fromName} ออกเงินค่า ${log.billTitle} ให้กลุ่ม`;
   }
@@ -236,6 +251,16 @@ function buildDebtSummary(sourceBills, members) {
   return Array.from(map.values()).filter((row) => Math.abs(row.amount) >= 0.01);
 }
 
+function paymentHistoryType(status) {
+  if (status === "verified") return "finance_payment_verified";
+  if (status === "rejected") return "finance_payment_rejected";
+  return "finance_payment_pending";
+}
+
+function payoutHistoryType(status) {
+  return status === "confirmed" ? "finance_payout_confirmed" : "finance_payout_sent";
+}
+
 function BillManager() {
   const { id } = useParams();
   const { user } = useAuth();
@@ -243,11 +268,13 @@ function BillManager() {
   const [group, setGroup] = useState(null);
   const [bills, setBills] = useState([]);
   const [payments, setPayments] = useState([]);
+  const [payouts, setPayouts] = useState([]);
   const [form, setForm] = useState(emptyBill);
   const [editingId, setEditingId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [activeBillId, setActiveBillId] = useState(null);
+  const [syncingFinance, setSyncingFinance] = useState(false);
 
   const [uploadingEvidence, setUploadingEvidence] = useState(false);
   const evidenceInputRef = useRef(null);
@@ -256,6 +283,7 @@ function BillManager() {
   const isGroupRoute = Boolean(id);
   const members = useMemo(() => group?.members || [], [group]);
   const canManage = isFinance(group, user?.userId);
+  const syncActorId = user?.userId || "";
 
   const totalTripAmount = useMemo(
     () => bills.reduce((sum, bill) => sum + Number(bill.amount || 0), 0),
@@ -305,16 +333,20 @@ function BillManager() {
       if (!groupSnap.exists()) {
         setGroup(null);
         setBills([]);
+        setPayments([]);
+        setPayouts([]);
         return;
       }
       const groupData = { id: groupSnap.id, ...groupSnap.data() };
-      const [nextBills, nextPayments] = await Promise.all([
+      const [nextBills, nextPayments, nextPayouts] = await Promise.all([
         getBills(groupId),
         getPayments(groupId).catch(() => []),
+        getPayouts(groupId).catch(() => []),
       ]);
       setGroup(groupData);
       setBills(nextBills);
       setPayments(nextPayments);
+      setPayouts(nextPayouts);
       setForm((current) => ({
         ...current,
         payerId: current.payerId || user?.userId || groupData.members?.[0]?.userId || "",
@@ -372,6 +404,7 @@ function BillManager() {
             updateBill(id, patch.billId, {
               participants: patch.participants,
               centralSettlementSyncedAt: syncedAt,
+              centralSettlementSyncedBy: syncActorId,
             })
           )
         );
@@ -385,7 +418,7 @@ function BillManager() {
     return () => {
       cancelled = true;
     };
-  }, [canManage, centralSettlement, group, id, isGroupRoute]);
+  }, [canManage, centralSettlement, group, id, isGroupRoute, syncActorId]);
 
   const rawSummaryByPerson = useMemo(
     () => buildDebtSummary(withoutCentralSettlement(bills), members),
@@ -404,19 +437,93 @@ function BillManager() {
     [visibleSummary]
   );
 
+  const financeHistoryLogs = useMemo(() => {
+    const paymentLogs = payments.map((payment) => {
+      const allocations = getPaymentAllocations(payment);
+      return {
+        id: `finance-pay-${payment.id}`,
+        type: paymentHistoryType(payment.status),
+        amount: roundMoney(payment.actualAmount ?? payment.amount),
+        fromName: payment.userName || "สมาชิก",
+        toName: "บัญชีกลาง",
+        createdAt: payment.reviewedAt || payment.createdAt,
+        createdByName: payment.reviewedByName || "",
+        detail: allocations
+          .map((allocation) => `${allocation.userName} ${money(allocation.amount)}`)
+          .join(" · "),
+      };
+    });
+
+    const payoutLogs = payouts.map((payout) => ({
+      id: `finance-payout-${payout.id}`,
+      type: payoutHistoryType(payout.status),
+      amount: roundMoney(payout.amount),
+      fromName: "บัญชีกลาง",
+      toName: payout.toUserName || "สมาชิก",
+      createdAt: payout.confirmedAt || payout.createdAt,
+      createdByName: payout.createdByName || "",
+      detail: payout.status === "confirmed" ? "ผู้รับยืนยันแล้ว" : "รอยืนยันรับเงิน",
+    }));
+
+    return [...paymentLogs, ...payoutLogs];
+  }, [payments, payouts]);
+
   const allPaymentLogs = useMemo(
-    () =>
-      bills
-        .flatMap((bill) =>
-          (bill.paymentLogs || []).map((log) => ({
+    () => [
+      ...bills.flatMap((bill) =>
+        (bill.paymentLogs || [])
+          .filter((log) => log.type !== "bill_created")
+          .map((log) => ({
             ...log,
             billId: bill.id,
             billTitle: log.billTitle || bill.title,
           }))
-        )
-        .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0)),
-    [bills]
+      ),
+      ...financeHistoryLogs,
+    ].sort((a, b) => toMillis(b.createdAt) - toMillis(a.createdAt)),
+    [bills, financeHistoryLogs]
   );
+
+  const handleSyncFinanceHistory = async () => {
+    if (!canManage || syncingFinance) return;
+    setSyncingFinance(true);
+    try {
+      const [nextBills, nextPayments, nextPayouts] = await Promise.all([
+        getBills(id),
+        getPayments(id).catch(() => []),
+        getPayouts(id).catch(() => []),
+      ]);
+      const settlement = buildCentralSettlement(nextBills, nextPayments);
+      const syncedAt = new Date().toISOString();
+      if (settlement.patches.length > 0) {
+        await Promise.all(
+          settlement.patches.map((patch) =>
+            updateBill(id, patch.billId, {
+              participants: patch.participants,
+              centralSettlementSyncedAt: syncedAt,
+              centralSettlementSyncedBy: syncActorId,
+            })
+          )
+        );
+      }
+      setBills(settlement.bills);
+      setPayments(nextPayments);
+      setPayouts(nextPayouts);
+      Swal.fire({
+        toast: true,
+        position: "top",
+        icon: "success",
+        title: `Sync แล้ว: ชำระ ${nextPayments.length} / จ่ายคืน ${nextPayouts.length}`,
+        showConfirmButton: false,
+        timer: 1600,
+      });
+    } catch (err) {
+      console.error(err);
+      Swal.fire("Sync ไม่สำเร็จ", "โหลดประวัติการเงินย้อนหลังไม่สำเร็จ", "error");
+    } finally {
+      setSyncingFinance(false);
+    }
+  };
 
   const updateForm = (field, value) => {
     setForm((current) => ({ ...current, [field]: value }));
@@ -1091,7 +1198,20 @@ function BillManager() {
         </div>
 
         <aside className="soft-card p-3 p-md-4">
-          <h2 className="h5 fw-bold mb-1">สรุปยอดต้องชำระ</h2>
+          <div className="d-flex justify-content-between align-items-start gap-2 mb-2">
+            <h2 className="h5 fw-bold mb-0">สรุปยอดต้องชำระ</h2>
+            {canManage && (
+              <button
+                type="button"
+                className="btn btn-sm btn-light border"
+                onClick={handleSyncFinanceHistory}
+                disabled={syncingFinance}
+                title="เช็คประวัติการชำระและการจ่ายย้อนหลัง"
+              >
+                {syncingFinance ? "กำลัง Sync..." : "Sync"}
+              </button>
+            )}
+          </div>
           {settledCount > 0 && (
             <p className="text-muted small mb-2">
               <span className="badge text-bg-success me-1">✓</span>
@@ -1125,11 +1245,9 @@ function BillManager() {
             </div>
           )}
 
-          <div className="bill-log-panel">
-            <h2 className="h5 fw-bold">ประวัติการชำระทั้งหมด</h2>
-            {allPaymentLogs.length === 0 ? (
-              <p className="text-muted mb-0 small">ยังไม่มี logs การชำระ</p>
-            ) : (
+          {allPaymentLogs.length > 0 && (
+            <div className="bill-log-panel">
+              <h2 className="h5 fw-bold">ประวัติการชำระทั้งหมด</h2>
               <div className="bill-log-list">
                 {allPaymentLogs.map((log) => (
                   <article key={`${log.billId}-${log.id}`} className={`bill-log-row type-${log.type}`}>
@@ -1138,6 +1256,7 @@ function BillManager() {
                       <small>
                         {formatLogTime(log.createdAt)}
                         {log.createdByName && ` · บันทึกโดย ${log.createdByName}`}
+                        {log.detail && ` · ${log.detail}`}
                       </small>
                     </div>
                     {Number(log.amount) > 0 && (
@@ -1146,8 +1265,8 @@ function BillManager() {
                   </article>
                 ))}
               </div>
-            )}
-          </div>
+            </div>
+          )}
         </aside>
       </section>
 
