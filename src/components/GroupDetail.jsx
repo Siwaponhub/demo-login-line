@@ -518,9 +518,17 @@ function GroupDetail() {
           <div className="group-hero-meta">
             <div className="group-hero-badges">
               {isOwner && <span className="hero-badge owner">เจ้าของกลุ่ม</span>}
+              {(group.financeUserIds || []).includes(user?.userId) && !isOwner && (
+                <span className="hero-badge owner">💰 ฝ่ายการเงิน</span>
+              )}
               <span className="hero-badge muted">
                 {group.members?.length || 0} สมาชิก
               </span>
+              {(group.financeUserIds || []).length > 0 && (
+                <span className="hero-badge muted">
+                  💰 {group.financeUserIds.length} ผู้คุมบัญชี
+                </span>
+              )}
             </div>
             <h1 className="group-hero-title">{group.name}</h1>
           </div>
@@ -593,17 +601,21 @@ function GroupDetail() {
                     >
                       {loadingMemberId === member.userId ? "กำลังโหลด..." : "ดูโปรไฟล์"}
                     </button>
-                    {member.userId === group.ownerId ? (
-                      <span className="badge text-bg-success">เจ้าของ</span>
-                    ) : (
-                      isOwner && (
-                        <button
-                          className="btn btn-sm btn-outline-danger"
-                          onClick={() => handleRemoveMember(member.userId)}
-                        >
-                          ลบ
-                        </button>
-                      )
+                    {member.userId === group.ownerId && (
+                      <span className="badge text-bg-success" title="เจ้าของกลุ่ม">เจ้าของ</span>
+                    )}
+                    {(group.financeUserIds || []).includes(member.userId) && (
+                      <span className="badge text-bg-primary" title="คุมบัญชีของกลุ่ม">
+                        💰 ฝ่ายการเงิน
+                      </span>
+                    )}
+                    {member.userId !== group.ownerId && isOwner && (
+                      <button
+                        className="btn btn-sm btn-outline-danger"
+                        onClick={() => handleRemoveMember(member.userId)}
+                      >
+                        ลบ
+                      </button>
                     )}
                   </div>
                 </div>
@@ -752,9 +764,14 @@ function GroupDetail() {
               <div className="min-w-0">
                 <h2>{memberProfile.name}</h2>
                 <p>{memberProfile.email || "ไม่มีอีเมล"}</p>
-                {memberProfile.userId === group.ownerId && (
-                  <span className="badge text-bg-success">เจ้าของกลุ่ม</span>
-                )}
+                <div className="d-flex gap-2 flex-wrap mt-1">
+                  {memberProfile.userId === group.ownerId && (
+                    <span className="badge text-bg-success">เจ้าของกลุ่ม</span>
+                  )}
+                  {(group.financeUserIds || []).includes(memberProfile.userId) && (
+                    <span className="badge text-bg-primary">💰 ฝ่ายการเงิน</span>
+                  )}
+                </div>
               </div>
             </div>
 

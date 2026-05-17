@@ -12,6 +12,7 @@ const emptyBankProfile = {
   bankName: "",
   bankAccount: "",
   promptpay: "",
+  qrDataUrl: "",
 };
 
 const customFields = [
@@ -48,6 +49,28 @@ function Profile() {
   const [savingBank, setSavingBank] = useState(false);
   const [bankProfile, setBankProfile] = useState(() => user?.bankProfile || emptyBankProfile);
   const bgInputRef = useRef(null);
+  const qrInputRef = useRef(null);
+
+  const handleQrFile = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      Swal.fire("ไฟล์ใหญ่เกินไป", "ขนาดไม่ควรเกิน 5MB", "info");
+      return;
+    }
+    try {
+      const url = await resizeImageToDataURL(file, { maxSize: 512, quality: 0.85 });
+      setBankProfile((current) => ({ ...current, qrDataUrl: url }));
+    } catch (err) {
+      console.error(err);
+      Swal.fire("เกิดข้อผิดพลาด", "อัปโหลด QR ไม่สำเร็จ", "error");
+    }
+  };
+
+  const removeQr = () => {
+    setBankProfile((current) => ({ ...current, qrDataUrl: "" }));
+  };
 
   useEffect(() => {
     if (!user?.userId) return;
@@ -250,6 +273,57 @@ function Profile() {
               placeholder="เบอร์โทร / เลขบัตร"
             />
           </label>
+          <div className="profile-bank-field profile-bank-qr">
+            <span>QR Code</span>
+            <div className="profile-qr-row">
+              {bankProfile.qrDataUrl ? (
+                <img
+                  src={bankProfile.qrDataUrl}
+                  alt="QR สำหรับโอนเงิน"
+                  className="profile-qr-preview"
+                />
+              ) : (
+                <div className="profile-qr-placeholder" aria-hidden="true">
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="3" width="7" height="7" rx="1" />
+                    <rect x="14" y="3" width="7" height="7" rx="1" />
+                    <rect x="3" y="14" width="7" height="7" rx="1" />
+                    <path d="M14 14h3v3M21 14v3M14 18v3M17 21h4" />
+                  </svg>
+                  <small>ยังไม่มี QR</small>
+                </div>
+              )}
+              <div className="profile-qr-actions">
+                <button
+                  type="button"
+                  className="btn btn-outline-success"
+                  onClick={() => qrInputRef.current?.click()}
+                >
+                  {bankProfile.qrDataUrl ? "เปลี่ยน QR" : "อัปโหลด QR"}
+                </button>
+                {bankProfile.qrDataUrl && (
+                  <button
+                    type="button"
+                    className="btn btn-light border"
+                    onClick={removeQr}
+                  >
+                    ลบ QR
+                  </button>
+                )}
+                <small className="text-muted">
+                  รับไฟล์ JPG / PNG / WebP (ย่อเหลือ 512×512 อัตโนมัติ)
+                </small>
+              </div>
+              <input
+                ref={qrInputRef}
+                type="file"
+                accept="image/*"
+                hidden
+                onChange={handleQrFile}
+                data-image-viewer="off"
+              />
+            </div>
+          </div>
         </div>
 
         <div className="profile-bank-actions">

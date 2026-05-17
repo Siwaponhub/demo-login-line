@@ -20,6 +20,7 @@ export async function saveBankProfile(userId, bankProfile) {
     bankName: bankProfile.bankName?.trim() || "",
     bankAccount: bankProfile.bankAccount?.trim() || "",
     promptpay: bankProfile.promptpay?.trim() || "",
+    qrDataUrl: bankProfile.qrDataUrl || "",
   };
 
   await setDoc(

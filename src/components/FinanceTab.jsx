@@ -446,8 +446,39 @@ function FinanceTab({ group, gid }) {
     .reduce((s, p) => s + Number(p.amount || 0), 0);
   const pendingQueue = payments.filter((p) => p.status === "pending");
 
+  // คนคุมบัญชีของกลุ่ม (owner + finance role)
+  const financeTeam = (group.members || []).filter(
+    (m) => m.userId === group.ownerId || (group.financeUserIds || []).includes(m.userId)
+  );
+
   return (
     <div className="finance-stack">
+      {/* ===== ทีมคุมบัญชี ===== */}
+      {financeTeam.length > 0 && (
+        <section className="finance-team">
+          <span className="finance-team-label">ผู้คุมบัญชี</span>
+          <div className="finance-team-list">
+            {financeTeam.map((m) => {
+              const isOwner = m.userId === group.ownerId;
+              return (
+                <span
+                  key={m.userId}
+                  className={`finance-team-chip ${isOwner ? "is-owner" : ""}`}
+                  title={isOwner ? "เจ้าของกลุ่ม" : "ฝ่ายการเงิน"}
+                >
+                  <img
+                    src={m.picture || "https://via.placeholder.com/30"}
+                    alt={m.name}
+                  />
+                  <span className="finance-team-name">{m.name}</span>
+                  <small>{isOwner ? "เจ้าของ" : "การเงิน"}</small>
+                </span>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
       {/* ===== Wallet info ===== */}
       {(wallet.promptpay || wallet.bankAccount) ? (
         <section className="soft-card p-3 p-md-4 wallet-card">
