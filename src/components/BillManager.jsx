@@ -4,7 +4,7 @@ import { collection, deleteField, doc, getDoc, getDocs } from "firebase/firestor
 import Swal from "sweetalert2";
 import { db } from "../firebase";
 import { createBill, deleteBill, getBills, updateBill } from "../services/billService";
-import { getPayments, isFinance, totalVerifiedPaid } from "../services/financeService";
+import { getPaymentAllocations, getPayments, isFinance } from "../services/financeService";
 import { useAuth } from "../AuthContext";
 import { resizeImageToDataURL } from "../utils/image";
 import BackHomeButtons from "./BackHomeButtons";
@@ -76,6 +76,166 @@ function createBillOpenLog(payload, actor) {
   };
 }
 
+function toMillis(value) {
+  if (!value) return 0;
+  if (typeof value.toMillis === "function") return value.toMillis();
+  if (typeof value.toDate === "function") return value.toDate().getTime();
+  const time = new Date(value).getTime();
+  return Number.isNaN(time) ? 0 : time;
+}
+
+function centralSettledPaid(participant) {
+  return roundMoney(participant.centralSettledPaid ?? participant.financePaid ?? 0);
+}
+
+function manualPaid(participant) {
+  return Math.max(0, roundMoney(Number(participant.paid || 0) - centralSettledPaid(participant)));
+}
+
+function verifiedPaidByUser(payments) {
+  const map = new Map();
+  payments
+    .filter((payment) => payment.status === "verified")
+    .forEach((payment) => {
+      getPaymentAllocations(payment).forEach((allocation) => {
+        map.set(
+          allocation.userId,
+          roundMoney((map.get(allocation.userId) || 0) + allocation.amount)
+        );
+      });
+    });
+  return map;
+}
+
+function buildCentralSettlement(bills, payments) {
+  const verifiedMap = verifiedPaidByUser(payments);
+  const balances = new Map();
+  const rawDebtTotals = new Map();
+  const debtRows = [];
+
+  [...bills]
+    .sort((a, b) => toMillis(a.createdAt) - toMillis(b.createdAt))
+    .forEach((bill) => {
+      (bill.participants || []).forEach((participant) => {
+        if (participant.userId === bill.payerId) return;
+        const share = roundMoney(participant.share);
+        if (share <= 0) return;
+
+        const paidOutsideCentral = manualPaid(participant);
+        const remainingBeforeCentral = Math.max(0, roundMoney(share - paidOutsideCentral));
+        if (remainingBeforeCentral < 0.01) return;
+
+        debtRows.push({
+          billId: bill.id,
+          userId: participant.userId,
+          remainingBeforeCentral,
+        });
+        rawDebtTotals.set(
+          participant.userId,
+          roundMoney((rawDebtTotals.get(participant.userId) || 0) + remainingBeforeCentral)
+        );
+        balances.set(
+          participant.userId,
+          roundMoney((balances.get(participant.userId) || 0) - remainingBeforeCentral)
+        );
+        balances.set(
+          bill.payerId,
+          roundMoney((balances.get(bill.payerId) || 0) + remainingBeforeCentral)
+        );
+      });
+    });
+
+  const settleBudgetByUser = new Map();
+  rawDebtTotals.forEach((rawDebtTotal, userId) => {
+    const netOwed = Math.max(0, roundMoney(-(balances.get(userId) || 0)));
+    const verifiedPaid = verifiedMap.get(userId) || 0;
+    const desiredRemaining = Math.max(0, roundMoney(netOwed - verifiedPaid));
+    settleBudgetByUser.set(userId, Math.max(0, roundMoney(rawDebtTotal - desiredRemaining)));
+  });
+
+  const settledByParticipant = new Map();
+  debtRows.forEach((row) => {
+    const budget = settleBudgetByUser.get(row.userId) || 0;
+    if (budget <= 0) return;
+    const settled = Math.min(row.remainingBeforeCentral, budget);
+    settleBudgetByUser.set(row.userId, roundMoney(budget - settled));
+    settledByParticipant.set(`${row.billId}:${row.userId}`, roundMoney(settled));
+  });
+
+  let hasChanges = false;
+  const patches = [];
+  const settledBills = bills.map((bill) => {
+    let billChanged = false;
+    const participants = (bill.participants || []).map((participant) => {
+      if (participant.userId === bill.payerId) return participant;
+
+      const paidOutsideCentral = manualPaid(participant);
+      const nextCentralSettled = settledByParticipant.get(`${bill.id}:${participant.userId}`) || 0;
+      const nextPaid = roundMoney(paidOutsideCentral + nextCentralSettled);
+      const currentPaid = roundMoney(participant.paid);
+      const currentCentralSettled = centralSettledPaid(participant);
+
+      if (
+        Math.abs(currentPaid - nextPaid) < 0.01 &&
+        Math.abs(currentCentralSettled - nextCentralSettled) < 0.01 &&
+        (participant.centralSettledPaid !== undefined || nextCentralSettled === 0)
+      ) {
+        return participant;
+      }
+
+      billChanged = true;
+      return {
+        ...participant,
+        paid: nextPaid,
+        centralSettledPaid: nextCentralSettled,
+      };
+    });
+
+    if (!billChanged) return bill;
+
+    hasChanges = true;
+    patches.push({ billId: bill.id, participants });
+    return { ...bill, participants };
+  });
+
+  return { bills: settledBills, patches, hasChanges };
+}
+
+function withoutCentralSettlement(bills) {
+  return bills.map((bill) => ({
+    ...bill,
+    participants: (bill.participants || []).map((participant) => (
+      participant.userId === bill.payerId
+        ? participant
+        : { ...participant, paid: manualPaid(participant), centralSettledPaid: 0 }
+    )),
+  }));
+}
+
+function buildDebtSummary(sourceBills, members) {
+  const map = new Map();
+  sourceBills.forEach((bill) => {
+    const payer = members.find((m) => m.userId === bill.payerId);
+    const payerName = payer?.name || bill.payerName || "ผู้จ่าย";
+    bill.participants?.forEach((participant) => {
+      if (participant.userId === bill.payerId) return;
+      const remaining = Number(participant.share || 0) - Number(participant.paid || 0);
+      if (Math.abs(remaining) < 0.01) return;
+      const key = `${participant.userId}->${bill.payerId}`;
+      const current = map.get(key) || {
+        debtorId: participant.userId,
+        debtorName: participant.name,
+        payerId: bill.payerId,
+        payerName,
+        amount: 0,
+      };
+      current.amount += remaining;
+      map.set(key, current);
+    });
+  });
+  return Array.from(map.values()).filter((row) => Math.abs(row.amount) >= 0.01);
+}
+
 function BillManager() {
   const { id } = useParams();
   const { user } = useAuth();
@@ -89,13 +249,13 @@ function BillManager() {
   const [showForm, setShowForm] = useState(false);
   const [activeBillId, setActiveBillId] = useState(null);
 
-  const [paidDrafts, setPaidDrafts] = useState({}); // billId -> { userId: paidValue }
-  const [savingPayments, setSavingPayments] = useState(false);
   const [uploadingEvidence, setUploadingEvidence] = useState(false);
   const evidenceInputRef = useRef(null);
+  const financeSyncKeyRef = useRef("");
 
   const isGroupRoute = Boolean(id);
   const members = useMemo(() => group?.members || [], [group]);
+  const canManage = isFinance(group, user?.userId);
 
   const totalTripAmount = useMemo(
     () => bills.reduce((sum, bill) => sum + Number(bill.amount || 0), 0),
@@ -181,53 +341,63 @@ function BillManager() {
     [form.participants]
   );
 
-  // Net summary: sum (share - paid) per debtor->payer pair
-  const summaryByPerson = useMemo(() => {
-    const map = new Map();
-    bills.forEach((bill) => {
-      const payer = members.find((m) => m.userId === bill.payerId);
-      const payerName = payer?.name || bill.payerName || "ผู้จ่าย";
-      bill.participants?.forEach((p) => {
-        if (p.userId === bill.payerId) return;
-        const remaining = Number(p.share || 0) - Number(p.paid || 0);
-        if (Math.abs(remaining) < 0.01) return;
-        const key = `${p.userId}->${bill.payerId}`;
-        const current = map.get(key) || {
-          debtorId: p.userId,
-          debtorName: p.name,
-          payerId: bill.payerId,
-          payerName,
-          amount: 0,
-        };
-        current.amount += remaining;
-        map.set(key, current);
-      });
-    });
-    return Array.from(map.values()).filter((row) => Math.abs(row.amount) >= 0.01);
-  }, [bills, members]);
+  const centralSettlement = useMemo(
+    () => buildCentralSettlement(bills, payments),
+    [bills, payments]
+  );
 
-  // ยอดที่แต่ละ debtor "ต้องจ่ายรวม" (ทุก payer รวมกัน)
-  const totalDebtByDebtor = useMemo(() => {
-    const map = new Map();
-    summaryByPerson.forEach((row) => {
-      if (row.amount <= 0) return;
-      map.set(row.debtorId, (map.get(row.debtorId) || 0) + row.amount);
-    });
-    return map;
-  }, [summaryByPerson]);
+  useEffect(() => {
+    if (!isGroupRoute || !canManage || !group || centralSettlement.patches.length === 0) return;
 
-  // ซ่อนรายการที่ debtor ส่งสลิปและถูก finance approve ครบแล้ว
-  // (verified actualAmount จาก FinanceTab >= ยอดหนี้ทั้งหมดของคนนั้น)
-  const visibleSummary = useMemo(() => {
-    return summaryByPerson.filter((row) => {
-      const totalOwed = totalDebtByDebtor.get(row.debtorId) || 0;
-      const verifiedPaid = totalVerifiedPaid(row.debtorId, payments);
-      // อนุมัติครบยอดแล้ว → ซ่อนทุกบรรทัดของ debtor นี้
-      return verifiedPaid < totalOwed - 0.01;
-    });
-  }, [summaryByPerson, totalDebtByDebtor, payments]);
+    const syncKey = JSON.stringify(
+      centralSettlement.patches.map((patch) => [
+        patch.billId,
+        patch.participants.map((participant) => [
+          participant.userId,
+          roundMoney(participant.paid),
+          roundMoney(participant.centralSettledPaid),
+        ]),
+      ])
+    );
+    if (financeSyncKeyRef.current === syncKey) return;
 
-  const settledCount = summaryByPerson.length - visibleSummary.length;
+    let cancelled = false;
+    financeSyncKeyRef.current = syncKey;
+
+    (async () => {
+      try {
+        const syncedAt = new Date().toISOString();
+        await Promise.all(
+          centralSettlement.patches.map((patch) =>
+            updateBill(id, patch.billId, {
+              participants: patch.participants,
+              centralSettlementSyncedAt: syncedAt,
+            })
+          )
+        );
+        if (!cancelled) setBills(centralSettlement.bills);
+      } catch (err) {
+        console.error("sync central settlement failed", err);
+        financeSyncKeyRef.current = "";
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [canManage, centralSettlement, group, id, isGroupRoute]);
+
+  const rawSummaryByPerson = useMemo(
+    () => buildDebtSummary(withoutCentralSettlement(bills), members),
+    [bills, members]
+  );
+
+  const visibleSummary = useMemo(
+    () => buildDebtSummary(centralSettlement.bills, members),
+    [centralSettlement.bills, members]
+  );
+
+  const settledCount = Math.max(0, rawSummaryByPerson.length - visibleSummary.length);
 
   const totalRemaining = useMemo(
     () => visibleSummary.reduce((sum, row) => sum + Math.max(0, row.amount), 0),
@@ -494,87 +664,6 @@ function BillManager() {
     });
   };
 
-  // === Payment editing ===
-
-  const draftFor = (bill, userId) => {
-    const drafts = paidDrafts[bill.id];
-    if (drafts && Object.prototype.hasOwnProperty.call(drafts, userId)) {
-      return drafts[userId];
-    }
-    const p = bill.participants?.find((x) => x.userId === userId);
-    return Number(p?.paid || 0);
-  };
-
-  const setDraft = (billId, userId, value) => {
-    setPaidDrafts((prev) => ({
-      ...prev,
-      [billId]: { ...(prev[billId] || {}), [userId]: value },
-    }));
-  };
-
-  const markPaidFull = (bill, p) => {
-    setDraft(bill.id, p.userId, Number(p.share || 0));
-  };
-
-  const markPaidZero = (bill, p) => {
-    setDraft(bill.id, p.userId, 0);
-  };
-
-  const hasUnsavedPayments = (bill) => {
-    const drafts = paidDrafts[bill.id];
-    if (!drafts) return false;
-    return Object.entries(drafts).some(([uid, v]) => {
-      const p = bill.participants?.find((x) => x.userId === uid);
-      return Number(p?.paid || 0) !== Number(v || 0);
-    });
-  };
-
-  const savePayments = async (bill) => {
-    const drafts = paidDrafts[bill.id] || {};
-    const updatedParticipants = (bill.participants || []).map((p) => ({
-      ...p,
-      paid: Object.prototype.hasOwnProperty.call(drafts, p.userId)
-        ? Number(drafts[p.userId]) || 0
-        : Number(p.paid) || 0,
-    }));
-    try {
-      setSavingPayments(true);
-      await updateBill(id, bill.id, {
-        ...bill,
-        participants: updatedParticipants,
-        updatedBy: user.userId,
-      });
-      setBills((prev) =>
-        prev.map((b) =>
-          b.id === bill.id ? { ...b, participants: updatedParticipants } : b
-        )
-      );
-      setPaidDrafts((prev) => {
-        const next = { ...prev };
-        delete next[bill.id];
-        return next;
-      });
-      Swal.fire({
-        toast: true, position: "top", icon: "success",
-        title: "บันทึกการชำระแล้ว", showConfirmButton: false, timer: 1400,
-      });
-    } catch (err) {
-      console.error(err);
-      Swal.fire("เกิดข้อผิดพลาด", "บันทึกการชำระไม่สำเร็จ", "error");
-    } finally {
-      setSavingPayments(false);
-    }
-  };
-
-  const discardPayments = (billId) => {
-    setPaidDrafts((prev) => {
-      const next = { ...prev };
-      delete next[billId];
-      return next;
-    });
-  };
-
-
   // === Render group picker (no group route) ===
 
 
@@ -612,9 +701,6 @@ function BillManager() {
 
   if (loading) return <div className="soft-card empty-state">กำลังโหลดค่าใช้จ่าย...</div>;
   if (!group) return <div className="soft-card empty-state">ไม่พบกลุ่มนี้</div>;
-
-  // เฉพาะเจ้าของกลุ่ม + ฝ่ายการเงิน → จัดการบิล/payment ได้
-  const canManage = isFinance(group, user?.userId);
 
   // active bill share summary
   const activeBillSummary = (() => {
@@ -1009,12 +1095,12 @@ function BillManager() {
           {settledCount > 0 && (
             <p className="text-muted small mb-2">
               <span className="badge text-bg-success me-1">✓</span>
-              ซ่อน {settledCount} รายการที่ฝ่ายการเงินอนุมัติแล้ว
+              หัก {settledCount} รายการที่ชำระหรือหักล้างผ่านบัญชีกลางแล้ว
             </p>
           )}
           {visibleSummary.length === 0 ? (
             <p className="text-muted mb-0 small">
-              {summaryByPerson.length === 0
+              {rawSummaryByPerson.length === 0
                 ? "ทุกบิลชำระสมดุลแล้ว"
                 : "ทุกคนชำระและได้รับอนุมัติครบแล้ว ✓"}
             </p>
