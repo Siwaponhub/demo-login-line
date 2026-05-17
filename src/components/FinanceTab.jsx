@@ -9,6 +9,7 @@ import {
 import { isGeminiEnabled, verifySlip } from "../services/geminiService";
 import { resizeImageToDataURL } from "../utils/image";
 import { getBills } from "../services/billService";
+import { getUserProfile } from "../services/userService";
 import { useAuth } from "../AuthContext";
 import { useImageViewer } from "../ImageViewerContext";
 
@@ -61,6 +62,30 @@ function FinanceTab({ group, gid }) {
 
   const finance = isFinance(group, user?.userId);
   const wallet = group?.wallet || {};
+  const walletOwnerId = wallet.walletOwnerId || "";
+  const walletOwner = (group?.members || []).find((m) => m.userId === walletOwnerId);
+  // QR สดของเจ้าของบัญชี (ถ้ามี linked walletOwnerId) — fallback เป็น wallet.qrDataUrl
+  const [ownerQrUrl, setOwnerQrUrl] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!walletOwnerId) {
+      setOwnerQrUrl("");
+      return;
+    }
+    (async () => {
+      try {
+        const profile = await getUserProfile(walletOwnerId);
+        if (cancelled) return;
+        setOwnerQrUrl(profile?.bankProfile?.qrDataUrl || "");
+      } catch (err) {
+        console.error("fetch wallet owner profile failed", err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [walletOwnerId]);
+
+  const displayQrUrl = ownerQrUrl || wallet.qrDataUrl || "";
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -486,6 +511,12 @@ function FinanceTab({ group, gid }) {
             <div>
               <span className="settings-eyebrow">บัญชีกลาง</span>
               <h3 className="h6 fw-bold mb-1 mt-2">{wallet.accountName || "ทริปกลาง"}</h3>
+              {walletOwner && (
+                <p className="wallet-owner-chip mb-2">
+                  <img src={walletOwner.picture || "https://via.placeholder.com/24"} alt={walletOwner.name} />
+                  <span>โอนเข้าบัญชีของ <strong>{walletOwner.name}</strong></span>
+                </p>
+              )}
               {wallet.promptpay && (
                 <p className="mb-1 small"><strong>PromptPay:</strong> {wallet.promptpay}</p>
               )}
@@ -495,8 +526,17 @@ function FinanceTab({ group, gid }) {
                 </p>
               )}
             </div>
-            {wallet.qrDataUrl && (
-              <img src={wallet.qrDataUrl} alt="QR" className="wallet-qr" />
+            {displayQrUrl && (
+              <figure className="wallet-qr-figure">
+                <img
+                  src={displayQrUrl}
+                  alt={`qr-${walletOwner?.name || wallet.accountName || "central"}.jpg`}
+                  className="wallet-qr"
+                />
+                {walletOwner && (
+                  <figcaption>QR ของ {walletOwner.name}</figcaption>
+                )}
+              </figure>
             )}
           </div>
         </section>

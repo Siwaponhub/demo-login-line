@@ -1257,6 +1257,52 @@
   background: #fff;
   padding: 6px;
   object-fit: contain;
+  cursor: zoom-in;
+  transition: transform 160ms ease;
+}
+
+.wallet-qr:hover {
+  transform: scale(1.04);
+}
+
+.wallet-qr-figure {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  margin: 0;
+}
+
+.wallet-qr-figure figcaption {
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.92);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.wallet-owner-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px 4px 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.22);
+  font-size: 0.84rem;
+  color: #fff;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.wallet-owner-chip img {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.wallet-owner-chip strong {
+  color: #fff;
 }
 
 .wallet-qr-preview {
@@ -2460,6 +2506,54 @@ img:not(.img-viewer-img) {
   font-weight: 850;
 }
 
+.member-bank-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 16px;
+}
+
+@media (max-width: 540px) {
+  .member-bank-layout {
+    grid-template-columns: 1fr;
+    justify-items: center;
+  }
+}
+
+.member-bank-qr {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 8px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 14px;
+  background: var(--surface-mute);
+}
+
+.member-bank-qr img {
+  width: 140px;
+  height: 140px;
+  object-fit: contain;
+  background: #fff;
+  padding: 6px;
+  border-radius: 12px;
+  cursor: zoom-in;
+  transition: transform 160ms ease;
+}
+
+.member-bank-qr img:hover {
+  transform: scale(1.04);
+}
+
+.member-bank-qr figcaption {
+  color: var(--text-muted);
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 .member-bank-list {
   display: grid;
   gap: 8px;
@@ -3002,6 +3096,7 @@ img:not(.img-viewer-img) {
   flex-basis: 100%;
   font-size: 0.78rem;
 }
+
 
 .profile-bank-actions {
   display: flex;
@@ -4106,5 +4201,239 @@ img:not(.img-viewer-img) {
 
   .bill-participant-row strong {
     white-space: normal;
+  }
+}
+
+/* ============================================================
+   MOBILE POLISH LAYER — รวมการปรับ UX มือถือทั้งหมด
+   - กัน horizontal scroll
+   - touch target ≥ 44px
+   - inputs 16px ไม่ให้ iOS zoom
+   - safe-area-inset (iPhone notch)
+   - SweetAlert / modals พอดีจอ
+   ============================================================ */
+
+@media (max-width: 760px) {
+  html, body {
+    overflow-x: hidden;
+  }
+
+  body {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* iPhone notch: เผื่อ safe-area บน topbar + bottom padding */
+  .app-topbar {
+    padding-top: max(14px, env(safe-area-inset-top));
+    padding-left: max(16px, env(safe-area-inset-left));
+    padding-right: max(16px, env(safe-area-inset-right));
+  }
+
+  .app-main {
+    padding-bottom: max(24px, env(safe-area-inset-bottom));
+  }
+
+  /* Touch targets — ปุ่มทุกชนิดอย่างน้อย 44x44 */
+  .btn:not(.btn-sm) {
+    min-height: 44px;
+  }
+
+  .btn-sm {
+    min-height: 38px;
+    padding: 8px 12px;
+  }
+
+  /* Inputs >= 16px กัน iOS Safari ซูมตอน focus */
+  input,
+  select,
+  textarea,
+  .form-control,
+  .form-select {
+    font-size: 16px;
+  }
+
+  /* ตัด margin pile-up ของ Bootstrap row บนมือถือ */
+  .row {
+    margin-right: -8px;
+    margin-left: -8px;
+  }
+
+  .row > * {
+    padding-right: 8px;
+    padding-left: 8px;
+  }
+
+  /* SweetAlert popup เต็มสบายขึ้น */
+  .swal2-popup {
+    width: 92vw !important;
+    padding: 18px !important;
+  }
+
+  .swal2-title {
+    font-size: 1.1rem !important;
+  }
+
+  /* topbar — brand text ไม่ให้กินพื้นที่จนเกิน */
+  .brand-link strong {
+    font-size: 0.95rem;
+  }
+
+  /* profile chip มี avatar เห็นชัด */
+  .profile-chip {
+    padding: 4px 4px 4px 4px;
+  }
+
+  .profile-chip img {
+    width: 32px;
+    height: 32px;
+  }
+
+  /* tab bar sticky บนมือถือ — ผู้ใช้สลับแท็บได้ไม่ต้องเลื่อนกลับ */
+  .group-tabs {
+    position: sticky;
+    top: 0;
+    z-index: 15;
+    margin-left: calc(-1 * clamp(16px, 4vw, 18px));
+    margin-right: calc(-1 * clamp(16px, 4vw, 18px));
+    padding-left: clamp(16px, 4vw, 18px);
+    padding-right: clamp(16px, 4vw, 18px);
+    border-radius: 0;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    background: var(--topbar-bg);
+    border-bottom: 1px solid var(--topbar-border);
+  }
+
+  /* hero ของแต่ละหน้า padding กระชับลง */
+  .menu-hero,
+  .group-hero,
+  .profile-card {
+    margin-bottom: 16px;
+  }
+
+  /* stat strip อย่าเล็กเกินจนอ่านไม่ออก */
+  .stat-strip-value {
+    font-size: clamp(1.05rem, 4.4vw, 1.4rem) !important;
+  }
+
+  /* รูปต่างๆ ไม่ให้ล้นกรอบ */
+  img {
+    max-width: 100%;
+    height: auto;
+  }
+
+  /* รายการยาวๆ ใน list-group ตัด padding ซ้ายให้พอดี */
+  .list-group-flush > .list-group-item {
+    padding-inline: 0;
+  }
+
+  /* Bill tabs / day tabs scroll snap ให้ลื่นขึ้น */
+  .bill-switcher,
+  .timeline-day-switcher,
+  .group-tabs {
+    scroll-snap-type: x proximity;
+  }
+
+  .bill-tab,
+  .timeline-day-tab,
+  .group-tab {
+    scroll-snap-align: start;
+  }
+
+  /* ลด margin ของ section header */
+  .page-header {
+    margin-bottom: 14px;
+  }
+}
+
+/* === EXTRA SMALL: <380px เช่น iPhone SE === */
+@media (max-width: 380px) {
+  .app-main {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+
+  /* Stat strip 3 ค่า → ใช้เลื่อนแนวนอนแทน 3 คอลัมน์ */
+  .stat-strip {
+    padding: 10px 8px;
+  }
+
+  .stat-strip-item {
+    flex: 0 0 auto;
+    min-width: 90px;
+  }
+
+  /* Hero title ขนาดเล็กลง */
+  .hero-title,
+  .group-hero-title,
+  .profile-name {
+    font-size: 1.4rem !important;
+  }
+
+  /* ปุ่มในแถวเดียวกัน wrap เร็วขึ้น */
+  .page-header > div + .btn {
+    width: 100%;
+  }
+
+  /* group-tab label ซ่อนได้บนจอเล็กจิ๋ว เหลือแค่ไอคอน */
+  .group-tab {
+    padding: 8px 10px;
+    gap: 6px;
+  }
+
+  /* Avatar list ของกลุ่มไม่ให้ล้น */
+  .avatar-row .avatar {
+    width: 28px;
+    height: 28px;
+    margin-right: -8px;
+  }
+
+  /* Custom theme color pickers ให้ตอบ touch ได้ดี */
+  .custom-color-row input[type="color"] {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+
+/* === Landscape mobile === */
+@media (max-height: 480px) and (orientation: landscape) {
+  .menu-hero,
+  .group-hero,
+  .profile-card {
+    padding-top: 14px;
+    padding-bottom: 14px;
+  }
+
+  /* ลดความสูง hero ตอน landscape ให้ค่อนข้างจอเหลือมาที่ content */
+  .hero-title,
+  .group-hero-title,
+  .profile-name {
+    font-size: 1.3rem;
+  }
+}
+
+/* === Image viewer / lightbox บนมือถือ — ปุ่ม close + save touch ได้ง่าย === */
+@media (max-width: 540px) {
+  .img-viewer-bar,
+  .slip-viewer .img-viewer-bar {
+    padding: 10px 12px;
+    gap: 8px;
+  }
+
+  .img-viewer-action,
+  .slip-viewer-close,
+  .img-viewer-close {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+/* === Reduce motion === */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
