@@ -3,7 +3,7 @@ import Swal from "sweetalert2";
 import {
   STATUS, attachGeminiCheck, computeNetting, confirmPayout, deletePayment,
   deletePayout, deriveStatus, getOutstanding, getPayments, getPayouts,
-  getOverpaid, getPaymentAllocations, getPayoutRemaining, isFinance,
+  getOverpaid, getPaymentAllocations, getPayoutRemaining, isFinance, isGroupMember,
   paymentTotalAmount, reviewPayment, sendPayout, submitPayment, totalVerifiedPaid,
 } from "../services/financeService";
 import { isGeminiEnabled, verifySlip } from "../services/geminiService";
@@ -60,7 +60,8 @@ function FinanceTab({ group, gid }) {
   const [savingPayout, setSavingPayout] = useState(false);
   const fileSubmittingRef = useRef(false);
 
-  const finance = isFinance(group, user?.userId);
+  const canViewGroupFinance = isGroupMember(group, user?.userId);
+  const canManageFinance = isFinance(group, user?.userId);
   const wallet = group?.wallet || {};
   const walletOwnerId = wallet.walletOwnerId || "";
   const walletOwner = (group?.members || []).find((m) => m.userId === walletOwnerId);
@@ -315,6 +316,7 @@ function FinanceTab({ group, gid }) {
 
   // ====== Finance: AI ตรวจสลิป ======
   const handleAiCheck = async (payment) => {
+    if (!canManageFinance) return;
     if (!isGeminiEnabled()) {
       Swal.fire("AI ไม่พร้อม", "ตั้ง VITE_GEMINI_API_KEY ใน .env ก่อน", "info");
       return;
@@ -335,6 +337,7 @@ function FinanceTab({ group, gid }) {
 
   // ====== Finance: อนุมัติ/ปฏิเสธ payment (กรอกยอดจริง) ======
   const handleApprove = async (payment) => {
+    if (!canManageFinance) return;
     const suggested = payment.geminiCheck?.foundAmount ?? payment.amount;
     const { value } = await Swal.fire({
       title: "ยอดที่ได้รับจริง",
@@ -369,6 +372,7 @@ function FinanceTab({ group, gid }) {
     } finally { setBusyId(null); }
   };
   const handleReject = async (payment) => {
+    if (!canManageFinance) return;
     const { value: reason } = await Swal.fire({
       title: "เหตุผลการปฏิเสธ", input: "text", inputPlaceholder: "เช่น ยอดไม่ตรง",
       showCancelButton: true, confirmButtonText: "ปฏิเสธ", confirmButtonColor: "#dc3545",
@@ -384,6 +388,7 @@ function FinanceTab({ group, gid }) {
 
   // ====== Finance: โอนคืนสมาชิก (modal แนบสลิป + ระบุยอด) ======
   const handleSendPayout = async (row) => {
+    if (!canManageFinance) return;
     if (fileSubmittingRef.current) return;
     const remaining = getPayoutRemaining(row, payouts);
     if (remaining <= 0) return;
@@ -410,6 +415,7 @@ function FinanceTab({ group, gid }) {
 
   const handleSubmitPayout = async (event) => {
     event.preventDefault();
+    if (!canManageFinance) return;
     if (!payoutModal || fileSubmittingRef.current) return;
     const payoutAmount = Math.round(Number(payoutModal.amount) * 100) / 100;
     if (!payoutAmount || payoutAmount <= 0) {
@@ -445,6 +451,7 @@ function FinanceTab({ group, gid }) {
 
   // ====== Finance: ลบ records ======
   const handleDeletePayment = async (id) => {
+    if (!canManageFinance) return;
     const r = await Swal.fire({
       icon: "warning", title: "ลบรายการชำระ?", showCancelButton: true,
       confirmButtonText: "ลบ", confirmButtonColor: "#dc3545",
@@ -454,6 +461,7 @@ function FinanceTab({ group, gid }) {
     reload();
   };
   const handleDeletePayout = async (id) => {
+    if (!canManageFinance) return;
     const r = await Swal.fire({
       icon: "warning", title: "ลบรายการโอนคืน?", showCancelButton: true,
       confirmButtonText: "ลบ", confirmButtonColor: "#dc3545",
@@ -615,8 +623,8 @@ function FinanceTab({ group, gid }) {
         );
       })()}
 
-      {/* ===== Netting table — เฉพาะ Finance / Owner เห็น ===== */}
-      {finance && (
+      {/* ===== Netting table ===== */}
+      {canViewGroupFinance && (
         <section className="soft-card p-3 p-md-4">
           <h2 className="h5 fw-bold mb-3">ยอดสุทธิทั้งกลุ่ม (Netting)</h2>
           <div className="netting-list">
@@ -656,7 +664,7 @@ function FinanceTab({ group, gid }) {
                       </span>
                     )}
                     {Math.abs(r.net) < 0.01 && <span className="text-muted">สมดุล</span>}
-                    {r.net > 0.01 && payoutRem > 0.01 && (
+                    {canManageFinance && r.net > 0.01 && payoutRem > 0.01 && (
                       <button className="btn btn-sm btn-success" onClick={() => handleSendPayout(r)}>
                         โอนคืน + แนบสลิป
                       </button>
@@ -685,7 +693,7 @@ function FinanceTab({ group, gid }) {
       )}
 
       {/* ===== Approval queue (Finance only — FR-3.2) ===== */}
-      {finance && (
+      {canManageFinance && (
         <section className="soft-card p-3 p-md-4">
           <h2 className="h5 fw-bold mb-3">
             คิวรอตรวจสลิป
@@ -818,7 +826,7 @@ function FinanceTab({ group, gid }) {
                         ดูสลิป
                       </button>
                     )}
-                    {finance && (
+                    {canManageFinance && (
                       <button className="btn btn-sm btn-light border" onClick={() => handleDeletePayment(p.id)}>×</button>
                     )}
                   </div>
@@ -843,7 +851,7 @@ function FinanceTab({ group, gid }) {
                       ดูสลิป
                     </button>
                   )}
-                  {finance && (
+                  {canManageFinance && (
                     <button className="btn btn-sm btn-light border" onClick={() => handleDeletePayout(p.id)}>×</button>
                   )}
                 </div>
