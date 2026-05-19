@@ -4,7 +4,7 @@ import { doc, getDoc, updateDoc } from "firebase/firestore";
 import Swal from "sweetalert2";
 import { db } from "../firebase";
 import { useAuth } from "../AuthContext";
-import { isFinance } from "../services/financeService";
+import { isGroupMember } from "../services/financeService";
 import { getUserProfile } from "../services/userService";
 import { resizeImageToDataURL } from "../utils/image";
 import GroupAvatar from "./GroupAvatar";
@@ -344,11 +344,11 @@ function GroupDetail() {
   }, [id]);
 
   const isOwner = user?.userId === group?.ownerId;
-  const canManageFinanceSettings = isFinance(group, user?.userId);
+  const canManageGroup = isGroupMember(group, user?.userId);
 
   const tabs = useMemo(
-    () => (canManageFinanceSettings ? [...BASE_TABS, SETTINGS_TAB] : BASE_TABS),
-    [canManageFinanceSettings]
+    () => (canManageGroup ? [...BASE_TABS, SETTINGS_TAB] : BASE_TABS),
+    [canManageGroup]
   );
 
   const initialTab = tabs.some((t) => t.id === searchParams.get("tab"))
@@ -363,12 +363,12 @@ function GroupDetail() {
     }
   }, [activeTab, searchParams, tabs]);
 
-  // If user loses finance settings access, kick them off the settings tab.
+  // If user loses group settings access, kick them off the settings tab.
   useEffect(() => {
-    if (activeTab === "settings" && !canManageFinanceSettings) {
+    if (activeTab === "settings" && !canManageGroup) {
       setActiveTab("overview");
     }
-  }, [activeTab, canManageFinanceSettings]);
+  }, [activeTab, canManageGroup]);
 
   useEffect(() => {
     if (!memberProfile) return;
@@ -391,7 +391,7 @@ function GroupDetail() {
   };
 
   const handleRemoveMember = async (memberId) => {
-    if (!group) return;
+    if (!group || !isOwner) return;
     const result = await Swal.fire({
       icon: "warning",
       title: "ลบสมาชิก?",
@@ -427,14 +427,14 @@ function GroupDetail() {
   };
 
   const handleChoosePhoto = () => {
-    if (!isOwner) return;
+    if (!canManageGroup) return;
     fileInputRef.current?.click();
   };
 
   const handlePhotoFile = async (event) => {
     const file = event.target.files?.[0];
     event.target.value = "";
-    if (!file || !isOwner) return;
+    if (!file || !canManageGroup) return;
 
     if (file.size > 5 * 1024 * 1024) {
       Swal.fire("ไฟล์ใหญ่เกินไป", "ขนาดไม่ควรเกิน 5MB", "info");
@@ -463,7 +463,7 @@ function GroupDetail() {
   };
 
   const handleRemovePhoto = async () => {
-    if (!isOwner || !group?.photoURL) return;
+    if (!canManageGroup || !group?.photoURL) return;
     const result = await Swal.fire({
       icon: "question",
       title: "ลบรูปกลุ่ม?",
@@ -479,7 +479,7 @@ function GroupDetail() {
   };
 
   const handleSaveName = async () => {
-    if (!isOwner) return;
+    if (!canManageGroup) return;
     const trimmed = nameDraft.trim();
     if (!trimmed) {
       Swal.fire("ชื่อกลุ่มว่างไม่ได้", "", "info");
@@ -673,17 +673,17 @@ function GroupDetail() {
           <FinanceTab group={group} gid={id} />
         )}
 
-        {activeTab === "settings" && canManageFinanceSettings && (
+        {activeTab === "settings" && canManageGroup && (
           <div className="settings-stack">
             {/* บัญชีกลาง + Finance role */}
             <FinanceSettings
               group={group}
               gid={id}
               onUpdate={(patch) => setGroup((g) => ({ ...g, ...patch }))}
-              canManageRoles={isOwner}
+              canManageRoles={canManageGroup}
             />
 
-            {isOwner && (
+            {canManageGroup && (
               <>
                 {/* รูปกลุ่ม */}
                 <section className="settings-card">

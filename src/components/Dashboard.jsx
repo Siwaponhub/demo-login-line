@@ -37,6 +37,9 @@ function Dashboard() {
   }, [user]);
 
   const handleDeleteGroup = async (groupId) => {
+    const targetGroup = groups.find((group) => group.id === groupId);
+    if (targetGroup?.ownerId !== user?.userId) return;
+
     const result = await Swal.fire({
       icon: "warning",
       title: "ลบกลุ่มนี้?",

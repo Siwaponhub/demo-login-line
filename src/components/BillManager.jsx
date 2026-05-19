@@ -4,7 +4,7 @@ import { collection, deleteField, doc, getDoc, getDocs } from "firebase/firestor
 import Swal from "sweetalert2";
 import { db } from "../firebase";
 import { createBill, deleteBill, getBills, updateBill } from "../services/billService";
-import { getPaymentAllocations, getPayments, getPayouts, isFinance } from "../services/financeService";
+import { getPaymentAllocations, getPayments, getPayouts, isGroupMember } from "../services/financeService";
 import { useAuth } from "../AuthContext";
 import { resizeImageToDataURL } from "../utils/image";
 import BackHomeButtons from "./BackHomeButtons";
@@ -298,10 +298,8 @@ function BillManager() {
 
   const isGroupRoute = Boolean(id);
   const members = useMemo(() => group?.members || [], [group]);
-  const canManage = isFinance(group, user?.userId);
-  const canCreateBill = !!user?.userId && (
-    canManage || members.some((member) => member.userId === user.userId)
-  );
+  const canManage = isGroupMember(group, user?.userId);
+  const canCreateBill = canManage;
   const syncActorId = user?.userId || "";
 
   const totalTripAmount = useMemo(
@@ -709,7 +707,7 @@ function BillManager() {
   const handleSubmit = async (event) => {
     event.preventDefault();
     if (editingId && !canManage) {
-      Swal.fire("ไม่มีสิทธิ์", "เฉพาะเจ้าของกลุ่มหรือผู้ดูแลการเงินเท่านั้นที่แก้ไขบิลได้", "warning");
+      Swal.fire("ไม่มีสิทธิ์", "เฉพาะสมาชิกในกลุ่มเท่านั้นที่แก้ไขบิลได้", "warning");
       return;
     }
     if (!editingId && !canCreateBill) {

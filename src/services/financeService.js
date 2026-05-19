@@ -244,8 +244,12 @@ export function deriveStatus(memberRow, payments, payouts) {
   return STATUS.PENDING_PAYOUT;
 }
 
-// เจ้าของกลุ่ม + คนที่มี role "finance" → สามารถจัดการเรื่องเงินทั้งหมดได้
-// (อนุมัติ/ปฏิเสธ สลิป, โอนคืน, ลบ records, CRUD บิล)
+export const isGroupMember = (group, userId) =>
+  !!userId &&
+  (group?.ownerId === userId ||
+    group?.members?.some((member) => member.userId === userId));
+
+// เจ้าของกลุ่ม + คนที่มี role "finance" → ป้าย/ทีมผู้คุมบัญชีเดิม
 export const isFinance = (group, userId) =>
   !!userId &&
   (group?.ownerId === userId ||
