@@ -299,6 +299,9 @@ function BillManager() {
   const isGroupRoute = Boolean(id);
   const members = useMemo(() => group?.members || [], [group]);
   const canManage = isFinance(group, user?.userId);
+  const canCreateBill = !!user?.userId && (
+    canManage || members.some((member) => member.userId === user.userId)
+  );
   const syncActorId = user?.userId || "";
 
   const totalTripAmount = useMemo(
@@ -624,6 +627,7 @@ function BillManager() {
   };
 
   const openCreateForm = () => {
+    if (!canCreateBill) return;
     setForm({
       ...emptyBill,
       payerId: user?.userId || members[0]?.userId || "",
@@ -704,6 +708,14 @@ function BillManager() {
 
   const handleSubmit = async (event) => {
     event.preventDefault();
+    if (editingId && !canManage) {
+      Swal.fire("ไม่มีสิทธิ์", "เฉพาะเจ้าของกลุ่มหรือผู้ดูแลการเงินเท่านั้นที่แก้ไขบิลได้", "warning");
+      return;
+    }
+    if (!editingId && !canCreateBill) {
+      Swal.fire("ไม่มีสิทธิ์", "เฉพาะสมาชิกในกลุ่มเท่านั้นที่สร้างบิลได้", "warning");
+      return;
+    }
     const amount = Number(form.amount || 0);
     if (!form.title.trim() || amount <= 0 || !form.payerId || form.participants.length === 0) {
       Swal.fire("ข้อมูลไม่ครบ", "กรอกชื่อบิล ยอดรวม ผู้จ่าย และสมาชิกที่ร่วมบิล", "info");
@@ -772,6 +784,7 @@ function BillManager() {
   };
 
   const handleEdit = (bill) => {
+    if (!canManage) return;
     setEditingId(bill.id);
     setActiveBillId(bill.id);
     setForm({
@@ -792,6 +805,7 @@ function BillManager() {
   };
 
   const handleDelete = async (billId) => {
+    if (!canManage) return;
     const result = await Swal.fire({
       icon: "warning",
       title: "ลบบิลนี้?",
@@ -884,12 +898,12 @@ function BillManager() {
           <h1 className="page-title">ค่าใช้จ่าย</h1>
           <p className="page-subtitle">
             {group.name}
-            {!canManage && (
+            {!canCreateBill && (
               <span className="badge text-bg-light ms-2">โหมดดูอย่างเดียว</span>
             )}
           </p>
         </div>
-        {canManage && (
+        {canCreateBill && (
           <button className="btn btn-success px-4" onClick={openCreateForm}>
             + เพิ่มบิล
           </button>
@@ -916,7 +930,7 @@ function BillManager() {
         </div>
       </section>
 
-      {showForm && canManage && (
+      {showForm && canCreateBill && (
         <form className="soft-card p-3 p-md-4 mt-3" onSubmit={handleSubmit}>
           <div className="d-flex justify-content-between align-items-start gap-3 mb-3">
             <div className="min-w-0">
