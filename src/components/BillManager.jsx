@@ -8,6 +8,54 @@ import { getPaymentAllocations, getPayments, getPayouts, isFinance } from "../se
 import { useAuth } from "../AuthContext";
 import { resizeImageToDataURL } from "../utils/image";
 import BackHomeButtons from "./BackHomeButtons";
+import PageGuideButton from "./PageGuideButton";
+
+const GUIDE_STEPS = [
+  {
+    element: ".page-header",
+    popover: {
+      title: "🧾 ค่าใช้จ่าย",
+      description: "<p>หน้านี้ใช้บันทึกบิลค่าใช้จ่ายร่วมในกลุ่ม ระบบจะคำนวณว่าใครต้องโอนให้ใครเท่าไรโดยอัตโนมัติ</p><ul class='dv-list'><li>📊 ดูยอดรวมค่าใช้จ่ายทั้งทริป</li><li>🤝 ระบบ Netting ลดจำนวนการโอน</li></ul>",
+      side: "bottom",
+      align: "start",
+    },
+  },
+  {
+    element: ".stat-strip",
+    popover: {
+      title: "📊 สรุปตัวเลข",
+      description: "<p>แถบสถิติแสดงภาพรวมค่าใช้จ่ายของกลุ่มในมุมมองเดียว</p><ul class='dv-list'><li>💰 ยอดรวม — ค่าใช้จ่ายทั้งหมด</li><li>🧾 จำนวนบิล — บิลที่บันทึกไว้</li><li>👥 คนที่ร่วมบิล — จำนวนสมาชิก</li></ul>",
+      side: "bottom",
+    },
+  },
+  {
+    element: '[data-guide="bill-add-btn"]',
+    popover: {
+      title: "➕ เพิ่มบิล",
+      description: "<p>กดเพื่อเปิดฟอร์มบันทึกบิล ระบุชื่อรายการ ยอดเงิน ผู้จ่าย และสมาชิกที่ร่วมบิล</p><ul class='dv-list'><li>📸 แนบรูปหลักฐาน/ใบเสร็จได้</li><li>👥 เลือกสมาชิกที่ร่วมค่าใช้จ่าย</li></ul>",
+      side: "bottom",
+      align: "end",
+    },
+  },
+  {
+    element: '[data-guide="bill-list"]',
+    popover: {
+      title: "📋 รายการบิล",
+      description: "<p>กดที่แท็บบิลเพื่อดูรายละเอียด ยอดแต่ละคน และหลักฐาน แก้ไขหรือลบบิลได้จากหน้านี้</p><ul class='dv-list'><li>🔍 คลิกบิลเพื่อดูรายละเอียด</li><li>✏️ แก้ไขหรือลบบิลได้</li></ul>",
+      side: "top",
+      align: "start",
+    },
+  },
+  {
+    element: '[data-guide="bill-summary"]',
+    popover: {
+      title: "💸 สรุปยอดต้องชำระ",
+      description: "<p>แสดงว่าใครต้องโอนเงินให้ใครเท่าไร กดปุ่มชำระและแนบสลิปเพื่อยืนยันการโอน</p><ul class='dv-list'><li>🏦 กดชำระเพื่อแนบสลิปโอนเงิน</li><li>✅ เจ้าของบัญชียืนยันสลิปเพื่อตัดยอด</li><li>📜 ดูประวัติการชำระย้อนหลังได้</li></ul>",
+      side: "left",
+      align: "start",
+    },
+  },
+];
 
 const emptyBill = {
   title: "",
@@ -903,11 +951,14 @@ function BillManager() {
             )}
           </p>
         </div>
-        {canCreateBill && (
-          <button className="btn btn-success px-4" onClick={openCreateForm}>
-            + เพิ่มบิล
-          </button>
-        )}
+        <div className="d-flex gap-2 align-items-center flex-wrap">
+          <PageGuideButton steps={GUIDE_STEPS} />
+          {canCreateBill && (
+            <button className="btn btn-success px-4" onClick={openCreateForm} data-guide="bill-add-btn">
+              + เพิ่มบิล
+            </button>
+          )}
+        </div>
       </section>
 
       {/* Compact stat strip — ทุกอย่างในแถวเดียว ไม่มีหน่วย */}
@@ -1115,7 +1166,7 @@ function BillManager() {
       )}
 
       <section className="expense-layout mt-3">
-        <div className="soft-card p-3 p-md-4">
+        <div className="soft-card p-3 p-md-4" data-guide="bill-list">
           <div className="d-flex justify-content-between align-items-center gap-3 mb-3">
             <h2 className="h5 fw-bold mb-0">รายการบิล</h2>
             <span className="badge text-bg-light">{bills.length}</span>
@@ -1263,7 +1314,7 @@ function BillManager() {
           )}
         </div>
 
-        <aside className="soft-card p-3 p-md-4">
+        <aside className="soft-card p-3 p-md-4" data-guide="bill-summary">
           <div className="d-flex justify-content-between align-items-start gap-2 mb-2">
             <h2 className="h5 fw-bold mb-0">สรุปยอดต้องชำระ</h2>
             {canManage && (

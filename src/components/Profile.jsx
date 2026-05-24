@@ -6,6 +6,37 @@ import { CUSTOM_THEME_ID, DEFAULT_CUSTOM_THEME, useTheme } from "../ThemeContext
 import { getUserProfile, saveBankProfile } from "../services/userService";
 import { resizeImageToDataURL } from "../utils/image";
 import BackHomeButtons from "./BackHomeButtons";
+import PageGuideButton from "./PageGuideButton";
+
+const GUIDE_STEPS = [
+  {
+    element: ".profile-card",
+    popover: {
+      title: "👤 ข้อมูล LINE ของคุณ",
+      description: "<p>แสดงรูปโปรไฟล์และชื่อที่ใช้จากบัญชี LINE ข้อมูลนี้จะแสดงให้สมาชิกกลุ่มอื่นเห็น</p>",
+      side: "bottom",
+      align: "start",
+    },
+  },
+  {
+    element: ".profile-bank-card",
+    popover: {
+      title: "🏦 บัญชีรับเงิน",
+      description: "<p>กรอกข้อมูลบัญชีธนาคารหรือพร้อมเพย์ที่ต้องการรับเงิน สมาชิกในกลุ่มจะเห็นข้อมูลนี้เมื่อต้องโอนเงินให้คุณ</p><ul class='dv-list'><li>🏦 ชื่อบัญชี + ธนาคาร + เลขบัญชี</li><li>📱 PromptPay — เบอร์โทรหรือเลขบัตร</li><li>📷 อัปโหลด QR Code ได้เลย</li></ul>",
+      side: "top",
+      align: "start",
+    },
+  },
+  {
+    element: ".theme-picker-card",
+    popover: {
+      title: "🎨 ธีมและพื้นหลัง",
+      description: "<p>ปรับแต่งสีของแอปตามสไตล์ที่ชอบ มีธีมสำเร็จรูป 6 แบบ หรือกำหนดสีเองได้</p><ul class='dv-list'><li>🎨 เลือกธีมสำเร็จรูป 6 แบบ</li><li>🖌️ กำหนดสีเองแบบ Custom</li><li>🖼️ ตั้งรูปพื้นหลังแอปได้</li></ul>",
+      side: "top",
+      align: "start",
+    },
+  },
+];
 
 const emptyBankProfile = {
   accountName: "",
@@ -209,6 +240,7 @@ function Profile() {
           <h1 className="page-title">โปรไฟล์</h1>
           <p className="page-subtitle">ข้อมูลบัญชีและการตั้งค่าหน้าตาแอป</p>
         </div>
+        <PageGuideButton steps={GUIDE_STEPS} />
       </section>
 
       <section className="profile-card">

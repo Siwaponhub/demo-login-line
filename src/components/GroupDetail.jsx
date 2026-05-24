@@ -13,6 +13,44 @@ import AvailabilityCalendar from "./AvailabilityCalendar";
 import Timeline from "./Timeline";
 import BillManager from "./BillManager";
 import FinanceTab from "./FinanceTab";
+import PageGuideButton from "./PageGuideButton";
+
+const GUIDE_STEPS = [
+  {
+    element: ".group-hero",
+    popover: {
+      title: "🏠 ข้อมูลกลุ่ม",
+      description: "<p>แสดงชื่อกลุ่ม จำนวนสมาชิก และบทบาทของคุณ เจ้าของกลุ่มสามารถแก้ไขชื่อและรูปกลุ่มได้</p><ul class='dv-list'><li>👑 เจ้าของกลุ่ม = สิทธิ์เต็ม</li><li>💰 ฝ่ายการเงิน = อนุมัติสลิปได้</li></ul>",
+      side: "bottom",
+      align: "start",
+    },
+  },
+  {
+    element: ".invite-strip",
+    popover: {
+      title: "🔗 เชิญสมาชิก",
+      description: "<p>คัดลอกลิงก์หรือรหัสกลุ่มส่งให้เพื่อน กดลิงก์แล้วเข้าร่วมกลุ่มได้ทันที</p><ul class='dv-list'><li>📋 กดคัดลอกลิงก์แล้วส่งผ่าน LINE</li><li>🔢 หรือแชร์รหัสกลุ่ม 8 หลัก</li></ul>",
+      side: "bottom",
+    },
+  },
+  {
+    element: ".group-tabs",
+    popover: {
+      title: "📑 แท็บฟีเจอร์",
+      description: "<p>กดแท็บต่างๆ เพื่อเข้าถึงฟีเจอร์ของกลุ่ม</p><ul class='dv-list'><li>👥 ภาพรวม — สมาชิกและข้อมูล</li><li>📅 ปฏิทิน — หาวันว่างตรงกัน</li><li>⏰ Timeline — ตารางกิจกรรม</li><li>💸 ค่าใช้จ่าย — บิลและการชำระ</li></ul>",
+      side: "bottom",
+      align: "center",
+    },
+  },
+  {
+    element: '.group-tab[aria-selected="false"]:nth-child(4)',
+    popover: {
+      title: "💸 ค่าใช้จ่าย",
+      description: "<p>บันทึกบิลร่วมกัน ระบบคำนวณว่าใครต้องโอนให้ใครเท่าไร พร้อมระบบยืนยันสลิปการชำระ</p>",
+      side: "bottom",
+    },
+  },
+];
 
 const BASE_TABS = [
   {
@@ -545,6 +583,7 @@ function GroupDetail() {
           <div className="group-hero-meta">
             <div className="group-hero-badges">
               {isOwner && <span className="hero-badge owner">เจ้าของกลุ่ม</span>}
+              <PageGuideButton steps={GUIDE_STEPS} />
               {(group.financeUserIds || []).includes(user?.userId) && !isOwner && (
                 <span className="hero-badge owner">💰 ฝ่ายการเงิน</span>
               )}

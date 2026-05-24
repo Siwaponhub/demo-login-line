@@ -6,6 +6,37 @@ import { db } from "../firebase";
 import { useAuth } from "../AuthContext";
 import BackHomeButtons from "./BackHomeButtons";
 import GroupAvatar from "./GroupAvatar";
+import PageGuideButton from "./PageGuideButton";
+
+const GUIDE_STEPS = [
+  {
+    element: ".page-header",
+    popover: {
+      title: "👥 กลุ่มของฉัน",
+      description: "<p>หน้านี้แสดงกลุ่มทั้งหมดที่คุณเป็นสมาชิก กดที่การ์ดกลุ่มเพื่อเข้าไปดูฟีเจอร์ต่างๆ</p><ul class='dv-list'><li>📋 ดูรายการกลุ่มทั้งหมด</li><li>👤 ดูสมาชิกและบทบาท</li><li>🔗 แชร์ลิงก์เชิญเพื่อน</li></ul>",
+      side: "bottom",
+      align: "start",
+    },
+  },
+  {
+    element: '[data-guide="dash-create"]',
+    popover: {
+      title: "➕ สร้างกลุ่มใหม่",
+      description: "<p>กดปุ่มนี้เพื่อไปหน้าสร้างกลุ่ม คุณสามารถตั้งชื่อกลุ่มและรับรหัสเชิญได้ทันที</p><ul class='dv-list'><li>✨ สร้างกลุ่มได้ในไม่กี่วินาที</li><li>📱 แชร์ลิงก์ผ่าน LINE ได้เลย</li></ul>",
+      side: "bottom",
+      align: "end",
+    },
+  },
+  {
+    element: "article.group-card",
+    popover: {
+      title: "📋 การ์ดกลุ่ม",
+      description: "<p>การ์ดแต่ละใบแสดงข้อมูลของกลุ่ม กด <strong>ดูรายละเอียด</strong> เพื่อเข้าไปใช้ฟีเจอร์ต่างๆ</p><ul class='dv-list'><li>🗓️ ปฏิทินวันว่าง</li><li>⏰ Timeline กิจกรรม</li><li>💸 ค่าใช้จ่ายและการเงิน</li></ul>",
+      side: "bottom",
+      align: "start",
+    },
+  },
+];
 
 function Dashboard() {
   const { user } = useAuth();
@@ -65,9 +96,12 @@ function Dashboard() {
           <h1 className="page-title">กลุ่มของฉัน</h1>
           <p className="page-subtitle">ดูรายละเอียด แชร์ลิงก์เชิญ หรือจัดการสมาชิกในกลุ่ม</p>
         </div>
-        <Link to="/creategroup" className="btn btn-success px-4">
-          สร้างกลุ่ม
-        </Link>
+        <div className="d-flex gap-2 align-items-center flex-wrap">
+          <PageGuideButton steps={GUIDE_STEPS} />
+          <Link to="/creategroup" className="btn btn-success px-4" data-guide="dash-create">
+            สร้างกลุ่ม
+          </Link>
+        </div>
       </section>
 
       {loading ? (

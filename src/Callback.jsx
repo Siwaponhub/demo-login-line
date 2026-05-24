@@ -74,6 +74,10 @@ function Callback() {
         localStorage.setItem("lineUser", JSON.stringify(userData));
         login(userData);
 
+        if (!localStorage.getItem("tutorial_done")) {
+          localStorage.setItem("tutorial_needed", "1");
+        }
+
         await setDoc(
           doc(db, "users", userData.userId),
           { ...userData, lastLogin: serverTimestamp() },

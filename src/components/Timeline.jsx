@@ -11,6 +11,28 @@ import {
 } from "../services/timelineService";
 import { useAuth } from "../AuthContext";
 import BackHomeButtons from "./BackHomeButtons";
+import PageGuideButton from "./PageGuideButton";
+
+const GUIDE_STEPS = [
+  {
+    element: '[data-guide="tl-add-btn"]',
+    popover: {
+      title: "➕ เพิ่มกิจกรรม",
+      description: "<p>กดปุ่มนี้เพื่อเปิดฟอร์มเพิ่มกิจกรรมใหม่ กรอกชื่อ วัน เวลา สถานที่ และลิงก์แผนที่</p><ul class='dv-list'><li>📅 เลือก Day ของทริป (วันที่ 1, 2, 3...)</li><li>⏰ ระบุเวลาเริ่มและสิ้นสุด</li><li>📍 ใส่ลิงก์ Google Maps ได้เลย</li></ul>",
+      side: "bottom",
+      align: "end",
+    },
+  },
+  {
+    element: '[data-guide="tl-list"]',
+    popover: {
+      title: "📋 แผนกิจกรรมทั้งหมด",
+      description: "<p>รายการกิจกรรมจัดเรียงตาม Day และเวลา กดแท็บวันเพื่อดูกิจกรรมในแต่ละวัน</p><ul class='dv-list'><li>🗂️ กดแท็บ Day เพื่อข้ามไปแต่ละวัน</li><li>✏️ กดแก้ไขหรือลบกิจกรรมแต่ละรายการ</li><li>🗺️ กดลิงก์แผนที่เพื่อเปิด Google Maps</li></ul>",
+      side: "top",
+      align: "start",
+    },
+  },
+];
 
 const emptyForm = {
   dayNumber: 1,
@@ -393,9 +415,12 @@ function Timeline() {
           <h1 className="page-title">Timeline กิจกรรม</h1>
           <p className="page-subtitle">{group.name}</p>
         </div>
-        <button className="btn btn-success px-4 py-3" onClick={openCreateForm}>
-          เพิ่มกิจกรรม
-        </button>
+        <div className="d-flex gap-2 align-items-center flex-wrap">
+          <PageGuideButton steps={GUIDE_STEPS} />
+          <button className="btn btn-success px-4 py-3" onClick={openCreateForm} data-guide="tl-add-btn">
+            เพิ่มกิจกรรม
+          </button>
+        </div>
       </section>
 
       {showForm && (
@@ -501,7 +526,7 @@ function Timeline() {
         </form>
       )}
 
-      <section className="soft-card p-4">
+      <section className="soft-card p-4" data-guide="tl-list">
         <div className="d-flex justify-content-between align-items-center gap-3 mb-3">
           <h2 className="h4 fw-bold mb-0">แผนกิจกรรม</h2>
           <span className="badge text-bg-light">{sortedItems.length} กิจกรรม</span>
