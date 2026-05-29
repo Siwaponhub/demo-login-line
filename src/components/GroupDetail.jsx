@@ -628,10 +628,10 @@ function GroupDetail() {
             aria-selected={activeTab === tab.id}
             className={`group-tab ${activeTab === tab.id ? "is-active" : ""}`}
             onClick={() => handleTabChange(tab.id)}
+            title={tab.label}
           >
-            <span className="group-tab-icon">{tab.icon}</span>
-            <span className="group-tab-label">
-              {tab.label}
+            <span className="group-tab-icon" style={{ position: "relative" }}>
+              {tab.icon}
               {tab.id === "finance" && group?.financeClosed && (
                 <span className="finance-tab-closed-dot" title="ปิดบิลแล้ว" />
               )}

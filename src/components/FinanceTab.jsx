@@ -684,18 +684,6 @@ function FinanceTab({ group, gid, onGroupUpdate = () => {} }) {
             {money(centralBalance)}
           </strong>
         </div>
-        <span className="stat-strip-divider" />
-        <div className="stat-strip-item">
-          <button
-            type="button"
-            className="btn btn-sm btn-light border"
-            onClick={reload}
-            disabled={loading}
-            title="โหลดข้อมูลใหม่"
-          >
-            {loading ? "..." : "↺ Sync"}
-          </button>
-        </div>
       </section>
 
       {/* ===== Member Dashboard (FR-1.3) — เห็นเฉพาะของตัวเอง ===== */}

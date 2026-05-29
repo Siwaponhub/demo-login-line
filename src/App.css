@@ -2266,13 +2266,14 @@ img:not(.img-viewer-img) {
 }
 /* dot บน tab การเงิน */
 .finance-tab-closed-dot {
-  display: inline-block;
-  width: 7px;
-  height: 7px;
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   background: #06c755;
-  margin-left: 4px;
-  vertical-align: middle;
+  border: 2px solid var(--surface, #fff);
   flex-shrink: 0;
 }
 
@@ -3977,18 +3978,14 @@ img:not(.img-viewer-img) {
 .group-tab {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  justify-content: center;
   flex: 1 1 auto;
-  min-width: max-content;
-  padding: 10px 14px;
+  padding: 10px 12px;
   border: 0;
   border-radius: 12px;
   background: transparent;
   color: var(--text-muted);
-  font-weight: 700;
-  font-size: 0.92rem;
   cursor: pointer;
-  white-space: nowrap;
   transition: background 180ms ease, color 180ms ease, transform 180ms ease;
 }
 
@@ -4009,8 +4006,8 @@ img:not(.img-viewer-img) {
 }
 
 .group-tab-icon svg {
-  width: 16px;
-  height: 16px;
+  width: 20px;
+  height: 20px;
 }
 
 .group-tab-panel {
