@@ -385,7 +385,7 @@ function FinanceTab({ group, gid }) {
   // ====== Finance: โอนคืนสมาชิก (modal แนบสลิป + ระบุยอด) ======
   const handleSendPayout = async (row) => {
     if (fileSubmittingRef.current) return;
-    const remaining = getPayoutRemaining(row, payouts);
+    const remaining = getPayoutRemaining(row, payouts, payments);
     if (remaining <= 0) return;
     setPayoutModal({
       row,
@@ -571,7 +571,7 @@ function FinanceTab({ group, gid }) {
         const outstanding = getOutstanding(me, payments);
         const paidIn = totalVerifiedPaid(me.userId, payments);
         const overpaid = getOverpaid(me, payments);
-        const payoutRem = getPayoutRemaining(me, payouts);
+        const payoutRem = getPayoutRemaining(me, payouts, payments);
         return (
           <section className="soft-card p-3 p-md-4 me-dashboard">
             <div className="d-flex justify-content-between align-items-start gap-2 mb-2">
@@ -621,7 +621,7 @@ function FinanceTab({ group, gid }) {
           <h2 className="h5 fw-bold mb-3">ยอดสุทธิทั้งกลุ่ม (Netting)</h2>
           <div className="netting-list">
             {memberRows.map((r) => {
-              const payoutRem = getPayoutRemaining(r, payouts);
+              const payoutRem = getPayoutRemaining(r, payouts, payments);
               const outstanding = getOutstanding(r, payments);
               const paidIn = totalVerifiedPaid(r.userId, payments);
               const overpaid = getOverpaid(r, payments);
@@ -643,7 +643,7 @@ function FinanceTab({ group, gid }) {
                   <div className="netting-net">
                     {r.net > 0.01 && (
                       <span className="text-success fw-bold">
-                        + {money(payoutRem)} {payoutRem < r.net ? `/ ${money(r.net)}` : ""} (รอรับคืน)
+                        + {money(payoutRem)} {payoutRem < roundMoney(r.net + paidIn) ? `/ ${money(roundMoney(r.net + paidIn))}` : ""} (รอรับคืน)
                       </span>
                     )}
                     {r.net < -0.01 && (
