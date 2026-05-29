@@ -662,26 +662,26 @@ function FinanceTab({ group, gid, onGroupUpdate = () => {} }) {
       {/* ===== Stat strip รวม ===== */}
       <section className="stat-strip">
         <div className="stat-strip-item">
-          <span className="stat-strip-label">รับเข้ากลาง</span>
-          <strong className="stat-strip-value is-good">{money(totalPaidIn)}</strong>
+          <span className="stat-strip-label">คงเหลือ</span>
+          <strong className={`stat-strip-value ${centralBalance >= 0 ? "is-good" : "is-warn"}`}>
+            {money(centralBalance)}
+          </strong>
         </div>
         <span className="stat-strip-divider" />
         <div className="stat-strip-item">
-          <span className="stat-strip-label">โอนคืนแล้ว</span>
+          <span className="stat-strip-label">โอนคืน</span>
           <strong className="stat-strip-value is-good">{money(totalPaidOut)}</strong>
+        </div>
+        <span className="stat-strip-divider" />
+        <div className="stat-strip-item">
+          <span className="stat-strip-label">เข้ากลาง</span>
+          <strong className="stat-strip-value is-good">{money(totalPaidIn)}</strong>
         </div>
         <span className="stat-strip-divider" />
         <div className="stat-strip-item">
           <span className="stat-strip-label">รอตรวจ</span>
           <strong className={`stat-strip-value ${pendingQueue.length ? "is-warn" : "is-good"}`}>
             {pendingQueue.length}
-          </strong>
-        </div>
-        <span className="stat-strip-divider" />
-        <div className="stat-strip-item">
-          <span className="stat-strip-label">คงเหลือในกลาง</span>
-          <strong className={`stat-strip-value ${centralBalance >= 0 ? "is-good" : "is-warn"}`}>
-            {money(centralBalance)}
           </strong>
         </div>
       </section>
