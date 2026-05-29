@@ -256,3 +256,22 @@ export const isFinance = (group, userId) =>
   !!userId &&
   (group?.ownerId === userId ||
     (Array.isArray(group?.financeUserIds) && group.financeUserIds.includes(userId)));
+
+// ====== FINANCE CLOSE / REOPEN (FR-6) ======
+export async function closeFinance(gid, actor) {
+  return updateDoc(doc(db, "groups", gid), {
+    financeClosed: true,
+    financeClosedAt: serverTimestamp(),
+    financeClosedBy: actor.userId,
+    financeClosedByName: actor.name,
+  });
+}
+
+export async function reopenFinance(gid) {
+  return updateDoc(doc(db, "groups", gid), {
+    financeClosed: false,
+    financeClosedAt: null,
+    financeClosedBy: null,
+    financeClosedByName: null,
+  });
+}
