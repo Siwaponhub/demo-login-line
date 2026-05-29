@@ -6,6 +6,52 @@ import Swal from "sweetalert2";
 import { db } from "../firebase";
 import { useAuth } from "../AuthContext";
 import BackHomeButtons from "./BackHomeButtons";
+import PageGuideButton from "./PageGuideButton";
+
+const GUIDE_STEPS = [
+  {
+    element: '[data-guide="create-form"]',
+    popover: {
+      title: "✨ สร้างกลุ่มใหม่",
+      description: "<p>กรอกชื่อกลุ่มแล้วกดสร้าง ระบบจะสร้างรหัส 8 หลักและลิงก์เชิญให้อัตโนมัติ</p><ul class='dv-list'><li>📝 ตั้งชื่อให้จำง่าย เช่น \"ทริปเชียงใหม่\"</li><li>🔑 ได้รับรหัสและลิงก์เชิญทันที</li></ul>",
+      side: "bottom",
+      align: "start",
+    },
+  },
+  {
+    element: "#groupName",
+    popover: {
+      title: "📝 ชื่อกลุ่ม",
+      description: "<p>กรอกชื่อกลุ่มที่สื่อความหมาย ให้สมาชิกรู้ว่าเป็นกลุ่มอะไร</p><ul class='dv-list'><li>เช่น ทริปญี่ปุ่น, นัดกินข้าว, บ้านใหม่</li></ul>",
+      side: "bottom",
+    },
+  },
+  {
+    element: '[data-guide="create-btn"]',
+    popover: {
+      title: "🚀 กดสร้างกลุ่ม",
+      description: "<p>หลังกดสร้าง จะมีส่วน <strong>ส่งคำเชิญ</strong> ปรากฏด้านล่าง คัดลอกลิงก์หรือรหัสส่งให้เพื่อนได้เลย</p>",
+      side: "top",
+    },
+  },
+  {
+    element: '[data-guide="join-form"]',
+    popover: {
+      title: "🎟️ เข้าร่วมกลุ่ม",
+      description: "<p>ถ้าเพื่อนสร้างกลุ่มไว้แล้ว กรอกรหัส 8 หลักที่ได้รับมาแล้วกดเข้าร่วม</p><ul class='dv-list'><li>รหัสกลุ่มเป็นตัวอักษร 8 ตัว เช่น ab12cd34</li><li>หรือกดลิงก์เชิญที่เพื่อนส่งมาโดยตรง</li></ul>",
+      side: "bottom",
+      align: "start",
+    },
+  },
+  {
+    element: "#joinCode",
+    popover: {
+      title: "🔢 กรอกรหัสกลุ่ม",
+      description: "<p>วางรหัส 8 หลักที่ได้รับจากเจ้าของกลุ่ม แล้วกดปุ่ม <strong>เข้าร่วมกลุ่ม</strong> ด้านล่าง</p>",
+      side: "bottom",
+    },
+  },
+];
 
 function CreateOrJoinGroup() {
   const [groupName, setGroupName] = useState("");
@@ -107,10 +153,11 @@ function CreateOrJoinGroup() {
             สร้างกลุ่มเพื่อแชร์ลิงก์ให้เพื่อน หรือกรอกรหัสกลุ่มที่ได้รับมา
           </p>
         </div>
+        <PageGuideButton steps={GUIDE_STEPS} />
       </section>
 
       <section className="section-grid">
-        <div className="soft-card p-4">
+        <div className="soft-card p-4" data-guide="create-form">
           <h2 className="h4 fw-bold">สร้างกลุ่มใหม่</h2>
           <p className="text-muted">ตั้งชื่อกลุ่มให้จำง่าย เช่น ทริปเชียงใหม่ หรือ นัดกินข้าว</p>
           <label className="form-label fw-bold" htmlFor="groupName">
@@ -124,12 +171,12 @@ function CreateOrJoinGroup() {
             value={groupName}
             onChange={(e) => setGroupName(e.target.value)}
           />
-          <button className="btn btn-success w-100 py-3" onClick={handleCreate}>
+          <button className="btn btn-success w-100 py-3" onClick={handleCreate} data-guide="create-btn">
             สร้างกลุ่ม
           </button>
         </div>
 
-        <div className="soft-card p-4">
+        <div className="soft-card p-4" data-guide="join-form">
           <h2 className="h4 fw-bold">เข้าร่วมกลุ่ม</h2>
           <p className="text-muted">กรอกรหัส 8 ตัวอักษรจากเจ้าของกลุ่ม</p>
           <label className="form-label fw-bold" htmlFor="joinCode">

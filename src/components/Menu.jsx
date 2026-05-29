@@ -1,14 +1,17 @@
 import { Link } from "react-router-dom";
 import { useAuth } from "../AuthContext";
+import { useTutorial } from "../TutorialContext";
 
 function Menu() {
   const { user, logout } = useAuth();
+  const { replayWelcome } = useTutorial();
 
   const menuItems = [
     {
       name: "กลุ่มของฉัน",
       path: "/dashboard",
       tone: "emerald",
+      guideId: "dashboard",
       desc: "ดูสมาชิกและจัดการกลุ่มทั้งหมด",
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -23,6 +26,7 @@ function Menu() {
       name: "ปฏิทินวันว่าง",
       path: "/calendar",
       tone: "ocean",
+      guideId: "calendar",
       desc: "เลือกกลุ่มเพื่อหาวันที่ว่างตรงกัน",
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -38,6 +42,7 @@ function Menu() {
       name: "Timeline",
       path: "/timeline",
       tone: "sunset",
+      guideId: "timeline",
       desc: "จัดตารางกิจกรรม วัน เวลา และสถานที่",
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -50,6 +55,7 @@ function Menu() {
       name: "ค่าใช้จ่าย",
       path: "/bills",
       tone: "ocean",
+      guideId: "bills",
       desc: "บันทึกบิลและสรุปยอดที่ต้องจ่ายคืน",
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -63,6 +69,7 @@ function Menu() {
       name: "สร้าง / เข้าร่วม",
       path: "/creategroup",
       tone: "sunset",
+      guideId: "creategroup",
       desc: "สร้างกลุ่มใหม่หรือกรอกรหัสเชิญ",
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -75,6 +82,7 @@ function Menu() {
       name: "โปรไฟล์",
       path: "/profile",
       tone: "violet",
+      guideId: "profile",
       desc: "ตรวจสอบข้อมูลบัญชี LINE",
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -139,7 +147,7 @@ function Menu() {
 
       <section className="menu-grid-modern">
         {menuItems.map((item) => (
-          <Link to={item.path} className={`menu-card-modern tone-${item.tone}`} key={item.path}>
+          <Link to={item.path} className={`menu-card-modern tone-${item.tone}`} key={item.path} data-guide={item.guideId}>
             <span className="menu-card-icon" aria-hidden="true">
               {item.icon}
             </span>
@@ -155,6 +163,24 @@ function Menu() {
           </Link>
         ))}
       </section>
+
+      <div className="menu-guide-bar">
+        <Link to="/guide" className="menu-guide-link">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10" />
+            <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+            <line x1="12" y1="17" x2="12.01" y2="17" />
+          </svg>
+          คู่มือการใช้งาน
+        </Link>
+        <button className="menu-guide-replay" onClick={replayWelcome} type="button">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="1 4 1 10 7 10" />
+            <path d="M3.51 15a9 9 0 1 0 .49-3.5" />
+          </svg>
+          เล่น Tutorial อีกครั้ง
+        </button>
+      </div>
     </>
   );
 }

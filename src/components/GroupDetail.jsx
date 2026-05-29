@@ -4,6 +4,7 @@ import { doc, getDoc, updateDoc } from "firebase/firestore";
 import Swal from "sweetalert2";
 import { db } from "../firebase";
 import { useAuth } from "../AuthContext";
+import { isFinance } from "../services/financeService";
 import { getUserProfile } from "../services/userService";
 import { resizeImageToDataURL } from "../utils/image";
 import GroupAvatar from "./GroupAvatar";
@@ -12,6 +13,44 @@ import AvailabilityCalendar from "./AvailabilityCalendar";
 import Timeline from "./Timeline";
 import BillManager from "./BillManager";
 import FinanceTab from "./FinanceTab";
+import PageGuideButton from "./PageGuideButton";
+
+const GUIDE_STEPS = [
+  {
+    element: ".group-hero",
+    popover: {
+      title: "🏠 ข้อมูลกลุ่ม",
+      description: "<p>แสดงชื่อกลุ่ม จำนวนสมาชิก และบทบาทของคุณ เจ้าของกลุ่มสามารถแก้ไขชื่อและรูปกลุ่มได้</p><ul class='dv-list'><li>👑 เจ้าของกลุ่ม = สิทธิ์เต็ม</li><li>💰 ฝ่ายการเงิน = อนุมัติสลิปได้</li></ul>",
+      side: "bottom",
+      align: "start",
+    },
+  },
+  {
+    element: ".invite-strip",
+    popover: {
+      title: "🔗 เชิญสมาชิก",
+      description: "<p>คัดลอกลิงก์หรือรหัสกลุ่มส่งให้เพื่อน กดลิงก์แล้วเข้าร่วมกลุ่มได้ทันที</p><ul class='dv-list'><li>📋 กดคัดลอกลิงก์แล้วส่งผ่าน LINE</li><li>🔢 หรือแชร์รหัสกลุ่ม 8 หลัก</li></ul>",
+      side: "bottom",
+    },
+  },
+  {
+    element: ".group-tabs",
+    popover: {
+      title: "📑 แท็บฟีเจอร์",
+      description: "<p>กดแท็บต่างๆ เพื่อเข้าถึงฟีเจอร์ของกลุ่ม</p><ul class='dv-list'><li>👥 ภาพรวม — สมาชิกและข้อมูล</li><li>📅 ปฏิทิน — หาวันว่างตรงกัน</li><li>⏰ Timeline — ตารางกิจกรรม</li><li>💸 ค่าใช้จ่าย — บิลและการชำระ</li></ul>",
+      side: "bottom",
+      align: "center",
+    },
+  },
+  {
+    element: '.group-tab[aria-selected="false"]:nth-child(4)',
+    popover: {
+      title: "💸 ค่าใช้จ่าย",
+      description: "<p>บันทึกบิลร่วมกัน ระบบคำนวณว่าใครต้องโอนให้ใครเท่าไร พร้อมระบบยืนยันสลิปการชำระ</p>",
+      side: "bottom",
+    },
+  },
+];
 
 const BASE_TABS = [
   {
@@ -114,9 +153,9 @@ function CopyChip({ label, value, fullText }) {
 }
 
 // ============================================================
-// Finance settings (เจ้าของกลุ่มเท่านั้น) — บัญชีกลาง + Role
+// Finance settings: บัญชีกลางให้เจ้าของ/ฝ่ายการเงินแก้ได้, Role ให้เจ้าของเท่านั้น
 // ============================================================
-function FinanceSettings({ group, gid, onUpdate }) {
+function FinanceSettings({ group, gid, onUpdate, canManageRoles = false }) {
   const [bankName, setBankName] = useState(group.wallet?.bankName || "");
   const [bankAccount, setBankAccount] = useState(group.wallet?.bankAccount || "");
   const [accountName, setAccountName] = useState(group.wallet?.accountName || "");
@@ -283,35 +322,36 @@ function FinanceSettings({ group, gid, onUpdate }) {
         </button>
       </section>
 
-      {/* Finance role */}
-      <section className="settings-card">
-        <header className="settings-card-header">
-          <span className="settings-eyebrow">สิทธิ์ฝ่ายการเงิน</span>
-          <h2 className="settings-title">เลือกผู้ดูแลการเงิน</h2>
-          <p className="settings-desc">
-            เฉพาะคนที่เลือกไว้เท่านั้นที่กดอนุมัติสลิป / โอนคืน / ดูคิวรอตรวจได้
-          </p>
-        </header>
-        <div className="role-list">
-          {group.members?.map((m) => {
-            const checked = financeIds.includes(m.userId);
-            return (
-              <label key={m.userId} className={`member-pick ${checked ? "is-on" : ""}`}>
-                <input
-                  type="checkbox"
-                  className="form-check-input"
-                  checked={checked}
-                  disabled={savingRoles}
-                  onChange={() => toggleFinance(m.userId)}
-                />
-                <img src={m.picture || "https://via.placeholder.com/30"} alt={m.name} className="avatar" />
-                <span className="member-pick-name">{m.name}</span>
-                {m.userId === group.ownerId && <span className="badge text-bg-success ms-auto">เจ้าของ</span>}
-              </label>
-            );
-          })}
-        </div>
-      </section>
+      {canManageRoles && (
+        <section className="settings-card">
+          <header className="settings-card-header">
+            <span className="settings-eyebrow">สิทธิ์ฝ่ายการเงิน</span>
+            <h2 className="settings-title">เลือกผู้ดูแลการเงิน</h2>
+            <p className="settings-desc">
+              เฉพาะคนที่เลือกไว้เท่านั้นที่กดอนุมัติสลิป / โอนคืน / ดูคิวรอตรวจได้
+            </p>
+          </header>
+          <div className="role-list">
+            {group.members?.map((m) => {
+              const checked = financeIds.includes(m.userId);
+              return (
+                <label key={m.userId} className={`member-pick ${checked ? "is-on" : ""}`}>
+                  <input
+                    type="checkbox"
+                    className="form-check-input"
+                    checked={checked}
+                    disabled={savingRoles}
+                    onChange={() => toggleFinance(m.userId)}
+                  />
+                  <img src={m.picture || "https://via.placeholder.com/30"} alt={m.name} className="avatar" />
+                  <span className="member-pick-name">{m.name}</span>
+                  {m.userId === group.ownerId && <span className="badge text-bg-success ms-auto">เจ้าของ</span>}
+                </label>
+              );
+            })}
+          </div>
+        </section>
+      )}
     </>
   );
 }
@@ -342,10 +382,11 @@ function GroupDetail() {
   }, [id]);
 
   const isOwner = user?.userId === group?.ownerId;
+  const canManageFinanceSettings = isFinance(group, user?.userId);
 
   const tabs = useMemo(
-    () => (isOwner ? [...BASE_TABS, SETTINGS_TAB] : BASE_TABS),
-    [isOwner]
+    () => (canManageFinanceSettings ? [...BASE_TABS, SETTINGS_TAB] : BASE_TABS),
+    [canManageFinanceSettings]
   );
 
   const initialTab = tabs.some((t) => t.id === searchParams.get("tab"))
@@ -353,12 +394,19 @@ function GroupDetail() {
     : "overview";
   const [activeTab, setActiveTab] = useState(initialTab);
 
-  // If user loses owner access, kick them off the settings tab.
   useEffect(() => {
-    if (activeTab === "settings" && !isOwner) {
+    const requestedTab = searchParams.get("tab");
+    if (requestedTab && requestedTab !== activeTab && tabs.some((t) => t.id === requestedTab)) {
+      setActiveTab(requestedTab);
+    }
+  }, [activeTab, searchParams, tabs]);
+
+  // If user loses finance settings access, kick them off the settings tab.
+  useEffect(() => {
+    if (activeTab === "settings" && !canManageFinanceSettings) {
       setActiveTab("overview");
     }
-  }, [activeTab, isOwner]);
+  }, [activeTab, canManageFinanceSettings]);
 
   useEffect(() => {
     if (!memberProfile) return;
@@ -535,6 +583,7 @@ function GroupDetail() {
           <div className="group-hero-meta">
             <div className="group-hero-badges">
               {isOwner && <span className="hero-badge owner">เจ้าของกลุ่ม</span>}
+              <PageGuideButton steps={GUIDE_STEPS} />
               {(group.financeUserIds || []).includes(user?.userId) && !isOwner && (
                 <span className="hero-badge owner">💰 ฝ่ายการเงิน</span>
               )}
@@ -663,95 +712,104 @@ function GroupDetail() {
           <FinanceTab group={group} gid={id} />
         )}
 
-        {activeTab === "settings" && isOwner && (
+        {activeTab === "settings" && canManageFinanceSettings && (
           <div className="settings-stack">
             {/* บัญชีกลาง + Finance role */}
-            <FinanceSettings group={group} gid={id} onUpdate={(patch) => setGroup((g) => ({ ...g, ...patch }))} />
+            <FinanceSettings
+              group={group}
+              gid={id}
+              onUpdate={(patch) => setGroup((g) => ({ ...g, ...patch }))}
+              canManageRoles={isOwner}
+            />
 
-            {/* รูปกลุ่ม */}
-            <section className="settings-card">
-              <header className="settings-card-header">
-                <span className="settings-eyebrow">รูปกลุ่ม</span>
-                <h2 className="settings-title">เปลี่ยนรูปประจำกลุ่ม</h2>
-                <p className="settings-desc">
-                  ค่าเริ่มต้นใช้พยัญชนะตัวแรกของชื่อกลุ่ม สามารถอัปโหลดรูปแทนได้ ขนาดไม่เกิน 5MB
-                </p>
-              </header>
+            {isOwner && (
+              <>
+                {/* รูปกลุ่ม */}
+                <section className="settings-card">
+                  <header className="settings-card-header">
+                    <span className="settings-eyebrow">รูปกลุ่ม</span>
+                    <h2 className="settings-title">เปลี่ยนรูปประจำกลุ่ม</h2>
+                    <p className="settings-desc">
+                      ค่าเริ่มต้นใช้พยัญชนะตัวแรกของชื่อกลุ่ม สามารถอัปโหลดรูปแทนได้ ขนาดไม่เกิน 5MB
+                    </p>
+                  </header>
 
-              <div className="settings-photo-row">
-                <GroupAvatar
-                  name={group.name}
-                  photoURL={group.photoURL}
-                  size={96}
-                  className="group-avatar-lg"
-                />
-                <div className="settings-photo-actions">
-                  <button
-                    type="button"
-                    className="btn btn-success px-4"
-                    onClick={handleChoosePhoto}
-                    disabled={uploadingPhoto}
-                  >
-                    {uploadingPhoto ? (
-                      <>
-                        <span className="spinner-border spinner-border-sm me-2" role="status" />
-                        กำลังอัปโหลด...
-                      </>
-                    ) : group.photoURL ? "เปลี่ยนรูป" : "อัปโหลดรูป"}
-                  </button>
-                  {group.photoURL && (
+                  <div className="settings-photo-row">
+                    <GroupAvatar
+                      name={group.name}
+                      photoURL={group.photoURL}
+                      size={96}
+                      className="group-avatar-lg"
+                    />
+                    <div className="settings-photo-actions">
+                      <button
+                        type="button"
+                        className="btn btn-success px-4"
+                        onClick={handleChoosePhoto}
+                        disabled={uploadingPhoto}
+                      >
+                        {uploadingPhoto ? (
+                          <>
+                            <span className="spinner-border spinner-border-sm me-2" role="status" />
+                            กำลังอัปโหลด...
+                          </>
+                        ) : group.photoURL ? "เปลี่ยนรูป" : "อัปโหลดรูป"}
+                      </button>
+                      {group.photoURL && (
+                        <button
+                          type="button"
+                          className="btn btn-outline-danger"
+                          onClick={handleRemovePhoto}
+                          disabled={uploadingPhoto}
+                        >
+                          ลบรูป
+                        </button>
+                      )}
+                      <small className="text-muted">
+                        รองรับไฟล์ JPG / PNG / WebP — ระบบจะย่อขนาดเป็น 256×256 อัตโนมัติ
+                      </small>
+                    </div>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      hidden
+                      onChange={handlePhotoFile}
+                    />
+                  </div>
+                </section>
+
+                {/* ชื่อกลุ่ม */}
+                <section className="settings-card">
+                  <header className="settings-card-header">
+                    <span className="settings-eyebrow">ชื่อกลุ่ม</span>
+                    <h2 className="settings-title">แก้ไขชื่อกลุ่ม</h2>
+                    <p className="settings-desc">
+                      สมาชิกทุกคนจะเห็นชื่อใหม่ทันทีหลังบันทึก
+                    </p>
+                  </header>
+
+                  <div className="settings-name-row">
+                    <input
+                      type="text"
+                      className="form-control"
+                      value={nameDraft}
+                      maxLength={60}
+                      onChange={(e) => setNameDraft(e.target.value)}
+                      placeholder="เช่น ทริปเชียงใหม่ 2026"
+                    />
                     <button
                       type="button"
-                      className="btn btn-outline-danger"
-                      onClick={handleRemovePhoto}
-                      disabled={uploadingPhoto}
+                      className="btn btn-success px-4"
+                      onClick={handleSaveName}
+                      disabled={!nameChanged || savingName}
                     >
-                      ลบรูป
+                      {savingName ? "กำลังบันทึก..." : "บันทึกชื่อ"}
                     </button>
-                  )}
-                  <small className="text-muted">
-                    รองรับไฟล์ JPG / PNG / WebP — ระบบจะย่อขนาดเป็น 256×256 อัตโนมัติ
-                  </small>
-                </div>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  hidden
-                  onChange={handlePhotoFile}
-                />
-              </div>
-            </section>
-
-            {/* ชื่อกลุ่ม */}
-            <section className="settings-card">
-              <header className="settings-card-header">
-                <span className="settings-eyebrow">ชื่อกลุ่ม</span>
-                <h2 className="settings-title">แก้ไขชื่อกลุ่ม</h2>
-                <p className="settings-desc">
-                  สมาชิกทุกคนจะเห็นชื่อใหม่ทันทีหลังบันทึก
-                </p>
-              </header>
-
-              <div className="settings-name-row">
-                <input
-                  type="text"
-                  className="form-control"
-                  value={nameDraft}
-                  maxLength={60}
-                  onChange={(e) => setNameDraft(e.target.value)}
-                  placeholder="เช่น ทริปเชียงใหม่ 2026"
-                />
-                <button
-                  type="button"
-                  className="btn btn-success px-4"
-                  onClick={handleSaveName}
-                  disabled={!nameChanged || savingName}
-                >
-                  {savingName ? "กำลังบันทึก..." : "บันทึกชื่อ"}
-                </button>
-              </div>
-            </section>
+                  </div>
+                </section>
+              </>
+            )}
           </div>
         )}
       </div>

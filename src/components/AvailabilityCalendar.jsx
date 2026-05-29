@@ -8,6 +8,46 @@ import { useAuth } from "../AuthContext";
 import "react-calendar/dist/Calendar.css";
 import BackHomeButtons from "./BackHomeButtons";
 import "./calendar.css";
+import PageGuideButton from "./PageGuideButton";
+
+const GUIDE_STEPS = [
+  {
+    element: ".react-calendar",
+    popover: {
+      title: "📅 ปฏิทินวันว่าง",
+      description: "<p><strong>คลิกวันที่คุณไม่ว่าง</strong> เพื่อบันทึก คลิกซ้ำเพื่อยกเลิก วันที่สีเขียวคือทุกคนยังว่างอยู่</p><ul class='dv-list'><li>🔴 สีแดง = วันที่คุณไม่ว่าง</li><li>🟢 สีเขียว = ทุกคนว่าง</li><li>🖼️ รูปโปรไฟล์ = สมาชิกที่ไม่ว่างวันนั้น</li></ul>",
+      side: "right",
+      align: "start",
+    },
+  },
+  {
+    element: '.btn-group[aria-label="filter"]',
+    popover: {
+      title: "🔍 กรองวัน",
+      description: "<p>เลือกดูเฉพาะวันที่ต้องการ เพื่อหาวันที่เหมาะสมในการนัดหมาย</p><ul class='dv-list'><li>ทั้งหมด — ดูทุกวัน</li><li>เสาร์-อาทิตย์ — วันหยุดสุดสัปดาห์</li><li>วันธรรมดา — จันทร์ถึงศุกร์</li></ul>",
+      side: "top",
+      align: "start",
+    },
+  },
+  {
+    element: '[data-guide="cal-common"]',
+    popover: {
+      title: "🎯 วันว่างตรงกัน",
+      description: "<p>รายการวันที่ <strong>ทุกคน</strong>ในกลุ่มยังว่างอยู่ ใช้ข้อมูลนี้เพื่อเลือกวันนัดที่ดีที่สุด</p>",
+      side: "left",
+      align: "start",
+    },
+  },
+  {
+    element: '[data-guide="cal-unavailable"]',
+    popover: {
+      title: "❌ คนที่ไม่ว่าง",
+      description: "<p>ดูรายชื่อสมาชิกที่บันทึกว่าไม่ว่างในช่วงเวลานั้น ช่วยวางแผนการนัดหมายได้แม่นยำขึ้น</p>",
+      side: "left",
+      align: "start",
+    },
+  },
+];
 
 const thaiDays = [
   "วันอาทิตย์",
@@ -184,6 +224,7 @@ function AvailabilityCalendar() {
             {group.name} กดวันที่เพื่อบันทึกว่าไม่ว่าง วันที่สีเขียวคือทุกคนยังว่าง
           </p>
         </div>
+        <PageGuideButton steps={GUIDE_STEPS} />
       </section>
 
       <section className="calendar-layout">
@@ -250,7 +291,7 @@ function AvailabilityCalendar() {
         </div>
 
         <aside className="d-grid gap-3">
-          <div className="soft-card p-4">
+          <div className="soft-card p-4" data-guide="cal-common">
             <h2 className="h5 fw-bold">วันที่ว่างตรงกัน</h2>
             {commonDates.length > 0 ? (
               <div className="list-group list-group-flush">
@@ -265,7 +306,7 @@ function AvailabilityCalendar() {
             )}
           </div>
 
-          <div className="soft-card p-4">
+          <div className="soft-card p-4" data-guide="cal-unavailable">
             <h2 className="h5 fw-bold">คนที่ไม่ว่าง</h2>
             {unavailableTable.length > 0 ? (
               <div className="list-group list-group-flush">

@@ -201,14 +201,16 @@ export function getOverpaid(memberRow, payments) {
   return Math.max(0, Math.round((paid - owed) * 100) / 100);
 }
 
-// ยอดที่รอรับคืน (net เป็นบวก - ที่ถูกโอนคืนไปแล้ว)
-export function getPayoutRemaining(memberRow, payouts) {
-  if (memberRow.net <= 0.01) return 0;
-  const owed = memberRow.net;
+// ยอดที่รอรับคืน (net เป็นบวก + เงินที่จ่ายเข้ากองกลางไปแล้ว - ที่ถูกโอนคืนไปแล้ว)
+export function getPayoutRemaining(memberRow, payouts, payments = []) {
+  if (memberRow.net <= 0.01 && !payments.length) return 0;
+  const paidIn = totalVerifiedPaid(memberRow.userId, payments);
+  const credit = roundMoney(Math.max(0, memberRow.net) + paidIn);
+  if (credit <= 0.01) return 0;
   const sent = payouts
     .filter((p) => p.toUserId === memberRow.userId)
     .reduce((s, p) => s + Number(p.amount || 0), 0);
-  return Math.max(0, Math.round((owed - sent) * 100) / 100);
+  return Math.max(0, Math.round((credit - sent) * 100) / 100);
 }
 
 export function deriveStatus(memberRow, payments, payouts) {
@@ -216,9 +218,7 @@ export function deriveStatus(memberRow, payments, payouts) {
   const myPays = payments.filter((p) => paymentIncludesUser(p, userId));
   const myPouts = payouts.filter((p) => p.toUserId === userId);
 
-  if (Math.abs(net) < 0.01) return STATUS.COMPLETED;
-
-  if (net < 0) {
+  if (net < -0.01) {
     // ต้องจ่ายเพิ่ม — ใช้ยอด actualAmount สะสม
     const owed = Math.abs(net);
     const paidSum = totalVerifiedPaid(userId, payments);
@@ -230,12 +230,18 @@ export function deriveStatus(memberRow, payments, payouts) {
     // มี verified บางส่วนแล้ว แต่ยังไม่ครบ → ยังถือว่ารอชำระต่อ
     return STATUS.PENDING_PAYMENT;
   }
-  // net > 0 → ต้องรับคืน
+
+  // net >= 0 → รวมเงินที่จ่ายเข้ากองกลางไปแล้วด้วย
+  const paidIn = totalVerifiedPaid(userId, payments);
+  const totalCredit = roundMoney(Math.max(0, net) + paidIn);
+  if (totalCredit < 0.01) return STATUS.COMPLETED;
+
+  // ต้องรับคืน
   const totalPayout = myPouts.reduce((s, p) => s + Number(p.amount || 0), 0);
   const sentTotal = myPouts
     .filter((p) => p.status === "sent")
     .reduce((s, p) => s + Number(p.amount || 0), 0);
-  if (totalPayout >= net - 0.01) {
+  if (totalPayout >= totalCredit - 0.01) {
     return sentTotal > 0 ? STATUS.AWAITING_CONFIRMATION : STATUS.COMPLETED;
   }
   if (totalPayout > 0.01) {

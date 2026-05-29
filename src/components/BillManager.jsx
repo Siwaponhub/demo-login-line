@@ -4,10 +4,58 @@ import { collection, deleteField, doc, getDoc, getDocs } from "firebase/firestor
 import Swal from "sweetalert2";
 import { db } from "../firebase";
 import { createBill, deleteBill, getBills, updateBill } from "../services/billService";
-import { getPayments, isFinance, totalVerifiedPaid } from "../services/financeService";
+import { getPaymentAllocations, getPayments, getPayouts, isFinance } from "../services/financeService";
 import { useAuth } from "../AuthContext";
 import { resizeImageToDataURL } from "../utils/image";
 import BackHomeButtons from "./BackHomeButtons";
+import PageGuideButton from "./PageGuideButton";
+
+const GUIDE_STEPS = [
+  {
+    element: ".page-header",
+    popover: {
+      title: "🧾 ค่าใช้จ่าย",
+      description: "<p>หน้านี้ใช้บันทึกบิลค่าใช้จ่ายร่วมในกลุ่ม ระบบจะคำนวณว่าใครต้องโอนให้ใครเท่าไรโดยอัตโนมัติ</p><ul class='dv-list'><li>📊 ดูยอดรวมค่าใช้จ่ายทั้งทริป</li><li>🤝 ระบบ Netting ลดจำนวนการโอน</li></ul>",
+      side: "bottom",
+      align: "start",
+    },
+  },
+  {
+    element: ".stat-strip",
+    popover: {
+      title: "📊 สรุปตัวเลข",
+      description: "<p>แถบสถิติแสดงภาพรวมค่าใช้จ่ายของกลุ่มในมุมมองเดียว</p><ul class='dv-list'><li>💰 ยอดรวม — ค่าใช้จ่ายทั้งหมด</li><li>🧾 จำนวนบิล — บิลที่บันทึกไว้</li><li>👥 คนที่ร่วมบิล — จำนวนสมาชิก</li></ul>",
+      side: "bottom",
+    },
+  },
+  {
+    element: '[data-guide="bill-add-btn"]',
+    popover: {
+      title: "➕ เพิ่มบิล",
+      description: "<p>กดเพื่อเปิดฟอร์มบันทึกบิล ระบุชื่อรายการ ยอดเงิน ผู้จ่าย และสมาชิกที่ร่วมบิล</p><ul class='dv-list'><li>📸 แนบรูปหลักฐาน/ใบเสร็จได้</li><li>👥 เลือกสมาชิกที่ร่วมค่าใช้จ่าย</li></ul>",
+      side: "bottom",
+      align: "end",
+    },
+  },
+  {
+    element: '[data-guide="bill-list"]',
+    popover: {
+      title: "📋 รายการบิล",
+      description: "<p>กดที่แท็บบิลเพื่อดูรายละเอียด ยอดแต่ละคน และหลักฐาน แก้ไขหรือลบบิลได้จากหน้านี้</p><ul class='dv-list'><li>🔍 คลิกบิลเพื่อดูรายละเอียด</li><li>✏️ แก้ไขหรือลบบิลได้</li></ul>",
+      side: "top",
+      align: "start",
+    },
+  },
+  {
+    element: '[data-guide="bill-summary"]',
+    popover: {
+      title: "💸 สรุปยอดต้องชำระ",
+      description: "<p>แสดงว่าใครต้องโอนเงินให้ใครเท่าไร กดปุ่มชำระและแนบสลิปเพื่อยืนยันการโอน</p><ul class='dv-list'><li>🏦 กดชำระเพื่อแนบสลิปโอนเงิน</li><li>✅ เจ้าของบัญชียืนยันสลิปเพื่อตัดยอด</li><li>📜 ดูประวัติการชำระย้อนหลังได้</li></ul>",
+      side: "left",
+      align: "start",
+    },
+  },
+];
 
 const emptyBill = {
   title: "",
@@ -16,6 +64,14 @@ const emptyBill = {
   evidenceImage: "",
   participants: [],
 };
+
+const HISTORY_PAGE_SIZE = 5;
+const HISTORY_FILTERS = [
+  { id: "all", label: "ทั้งหมด" },
+  { id: "payment", label: "ชำระเข้า" },
+  { id: "payout", label: "จ่ายคืน" },
+  { id: "bill", label: "บันทึกบิล" },
+];
 
 const money = (amount) =>
   Number(amount || 0).toLocaleString("th-TH", {
@@ -42,6 +98,21 @@ function formatLogTime(value) {
 }
 
 function paymentLogText(log) {
+  if (log.type === "finance_payment_verified") {
+    return `${log.fromName} ชำระเข้าบัญชีกลางแล้ว`;
+  }
+  if (log.type === "finance_payment_pending") {
+    return `${log.fromName} ส่งสลิปรอตรวจ`;
+  }
+  if (log.type === "finance_payment_rejected") {
+    return `ปฏิเสธสลิปของ ${log.fromName}`;
+  }
+  if (log.type === "finance_payout_confirmed") {
+    return `โอนคืนให้ ${log.toName} และยืนยันแล้ว`;
+  }
+  if (log.type === "finance_payout_sent") {
+    return `โอนคืนให้ ${log.toName} แล้ว`;
+  }
   if (log.type === "bill_created") {
     return `${log.fromName} ออกเงินค่า ${log.billTitle} ให้กลุ่ม`;
   }
@@ -76,6 +147,182 @@ function createBillOpenLog(payload, actor) {
   };
 }
 
+function toMillis(value) {
+  if (!value) return 0;
+  if (typeof value.toMillis === "function") return value.toMillis();
+  if (typeof value.toDate === "function") return value.toDate().getTime();
+  const time = new Date(value).getTime();
+  return Number.isNaN(time) ? 0 : time;
+}
+
+function centralSettledPaid(participant) {
+  return roundMoney(participant.centralSettledPaid ?? participant.financePaid ?? 0);
+}
+
+function manualPaid(participant) {
+  return Math.max(0, roundMoney(Number(participant.paid || 0) - centralSettledPaid(participant)));
+}
+
+function verifiedPaidByUser(payments) {
+  const map = new Map();
+  payments
+    .filter((payment) => payment.status === "verified")
+    .forEach((payment) => {
+      getPaymentAllocations(payment).forEach((allocation) => {
+        map.set(
+          allocation.userId,
+          roundMoney((map.get(allocation.userId) || 0) + allocation.amount)
+        );
+      });
+    });
+  return map;
+}
+
+function buildCentralSettlement(bills, payments) {
+  const verifiedMap = verifiedPaidByUser(payments);
+  const balances = new Map();
+  const rawDebtTotals = new Map();
+  const debtRows = [];
+
+  [...bills]
+    .sort((a, b) => toMillis(a.createdAt) - toMillis(b.createdAt))
+    .forEach((bill) => {
+      (bill.participants || []).forEach((participant) => {
+        if (participant.userId === bill.payerId) return;
+        const share = roundMoney(participant.share);
+        if (share <= 0) return;
+
+        const paidOutsideCentral = manualPaid(participant);
+        const remainingBeforeCentral = Math.max(0, roundMoney(share - paidOutsideCentral));
+        if (remainingBeforeCentral < 0.01) return;
+
+        debtRows.push({
+          billId: bill.id,
+          userId: participant.userId,
+          remainingBeforeCentral,
+        });
+        rawDebtTotals.set(
+          participant.userId,
+          roundMoney((rawDebtTotals.get(participant.userId) || 0) + remainingBeforeCentral)
+        );
+        balances.set(
+          participant.userId,
+          roundMoney((balances.get(participant.userId) || 0) - remainingBeforeCentral)
+        );
+        balances.set(
+          bill.payerId,
+          roundMoney((balances.get(bill.payerId) || 0) + remainingBeforeCentral)
+        );
+      });
+    });
+
+  const settleBudgetByUser = new Map();
+  rawDebtTotals.forEach((rawDebtTotal, userId) => {
+    const netOwed = Math.max(0, roundMoney(-(balances.get(userId) || 0)));
+    const verifiedPaid = verifiedMap.get(userId) || 0;
+    const desiredRemaining = Math.max(0, roundMoney(netOwed - verifiedPaid));
+    settleBudgetByUser.set(userId, Math.max(0, roundMoney(rawDebtTotal - desiredRemaining)));
+  });
+
+  const settledByParticipant = new Map();
+  debtRows.forEach((row) => {
+    const budget = settleBudgetByUser.get(row.userId) || 0;
+    if (budget <= 0) return;
+    const settled = Math.min(row.remainingBeforeCentral, budget);
+    settleBudgetByUser.set(row.userId, roundMoney(budget - settled));
+    settledByParticipant.set(`${row.billId}:${row.userId}`, roundMoney(settled));
+  });
+
+  let hasChanges = false;
+  const patches = [];
+  const settledBills = bills.map((bill) => {
+    let billChanged = false;
+    const participants = (bill.participants || []).map((participant) => {
+      if (participant.userId === bill.payerId) return participant;
+
+      const paidOutsideCentral = manualPaid(participant);
+      const nextCentralSettled = settledByParticipant.get(`${bill.id}:${participant.userId}`) || 0;
+      const nextPaid = roundMoney(paidOutsideCentral + nextCentralSettled);
+      const currentPaid = roundMoney(participant.paid);
+      const currentCentralSettled = centralSettledPaid(participant);
+
+      if (
+        Math.abs(currentPaid - nextPaid) < 0.01 &&
+        Math.abs(currentCentralSettled - nextCentralSettled) < 0.01 &&
+        (participant.centralSettledPaid !== undefined || nextCentralSettled === 0)
+      ) {
+        return participant;
+      }
+
+      billChanged = true;
+      return {
+        ...participant,
+        paid: nextPaid,
+        centralSettledPaid: nextCentralSettled,
+      };
+    });
+
+    if (!billChanged) return bill;
+
+    hasChanges = true;
+    patches.push({ billId: bill.id, participants });
+    return { ...bill, participants };
+  });
+
+  return { bills: settledBills, patches, hasChanges };
+}
+
+function withoutCentralSettlement(bills) {
+  return bills.map((bill) => ({
+    ...bill,
+    participants: (bill.participants || []).map((participant) => (
+      participant.userId === bill.payerId
+        ? participant
+        : { ...participant, paid: manualPaid(participant), centralSettledPaid: 0 }
+    )),
+  }));
+}
+
+function buildDebtSummary(sourceBills, members) {
+  const map = new Map();
+  sourceBills.forEach((bill) => {
+    const payer = members.find((m) => m.userId === bill.payerId);
+    const payerName = payer?.name || bill.payerName || "ผู้จ่าย";
+    bill.participants?.forEach((participant) => {
+      if (participant.userId === bill.payerId) return;
+      const remaining = Number(participant.share || 0) - Number(participant.paid || 0);
+      if (Math.abs(remaining) < 0.01) return;
+      const key = `${participant.userId}->${bill.payerId}`;
+      const current = map.get(key) || {
+        debtorId: participant.userId,
+        debtorName: participant.name,
+        payerId: bill.payerId,
+        payerName,
+        amount: 0,
+      };
+      current.amount += remaining;
+      map.set(key, current);
+    });
+  });
+  return Array.from(map.values()).filter((row) => Math.abs(row.amount) >= 0.01);
+}
+
+function paymentHistoryType(status) {
+  if (status === "verified") return "finance_payment_verified";
+  if (status === "rejected") return "finance_payment_rejected";
+  return "finance_payment_pending";
+}
+
+function payoutHistoryType(status) {
+  return status === "confirmed" ? "finance_payout_confirmed" : "finance_payout_sent";
+}
+
+function historyFilterKey(log) {
+  if (log.type?.startsWith("finance_payment_")) return "payment";
+  if (log.type?.startsWith("finance_payout_")) return "payout";
+  return "bill";
+}
+
 function BillManager() {
   const { id } = useParams();
   const { user } = useAuth();
@@ -83,19 +330,27 @@ function BillManager() {
   const [group, setGroup] = useState(null);
   const [bills, setBills] = useState([]);
   const [payments, setPayments] = useState([]);
+  const [payouts, setPayouts] = useState([]);
   const [form, setForm] = useState(emptyBill);
   const [editingId, setEditingId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [activeBillId, setActiveBillId] = useState(null);
+  const [syncingFinance, setSyncingFinance] = useState(false);
+  const [historyFilter, setHistoryFilter] = useState("all");
+  const [historyPage, setHistoryPage] = useState(1);
 
-  const [paidDrafts, setPaidDrafts] = useState({}); // billId -> { userId: paidValue }
-  const [savingPayments, setSavingPayments] = useState(false);
   const [uploadingEvidence, setUploadingEvidence] = useState(false);
   const evidenceInputRef = useRef(null);
+  const financeSyncKeyRef = useRef("");
 
   const isGroupRoute = Boolean(id);
   const members = useMemo(() => group?.members || [], [group]);
+  const canManage = isFinance(group, user?.userId);
+  const canCreateBill = !!user?.userId && (
+    canManage || members.some((member) => member.userId === user.userId)
+  );
+  const syncActorId = user?.userId || "";
 
   const totalTripAmount = useMemo(
     () => bills.reduce((sum, bill) => sum + Number(bill.amount || 0), 0),
@@ -145,16 +400,20 @@ function BillManager() {
       if (!groupSnap.exists()) {
         setGroup(null);
         setBills([]);
+        setPayments([]);
+        setPayouts([]);
         return;
       }
       const groupData = { id: groupSnap.id, ...groupSnap.data() };
-      const [nextBills, nextPayments] = await Promise.all([
+      const [nextBills, nextPayments, nextPayouts] = await Promise.all([
         getBills(groupId),
         getPayments(groupId).catch(() => []),
+        getPayouts(groupId).catch(() => []),
       ]);
       setGroup(groupData);
       setBills(nextBills);
       setPayments(nextPayments);
+      setPayouts(nextPayouts);
       setForm((current) => ({
         ...current,
         payerId: current.payerId || user?.userId || groupData.members?.[0]?.userId || "",
@@ -181,72 +440,193 @@ function BillManager() {
     [form.participants]
   );
 
-  // Net summary: sum (share - paid) per debtor->payer pair
-  const summaryByPerson = useMemo(() => {
-    const map = new Map();
-    bills.forEach((bill) => {
-      const payer = members.find((m) => m.userId === bill.payerId);
-      const payerName = payer?.name || bill.payerName || "ผู้จ่าย";
-      bill.participants?.forEach((p) => {
-        if (p.userId === bill.payerId) return;
-        const remaining = Number(p.share || 0) - Number(p.paid || 0);
-        if (Math.abs(remaining) < 0.01) return;
-        const key = `${p.userId}->${bill.payerId}`;
-        const current = map.get(key) || {
-          debtorId: p.userId,
-          debtorName: p.name,
-          payerId: bill.payerId,
-          payerName,
-          amount: 0,
-        };
-        current.amount += remaining;
-        map.set(key, current);
-      });
-    });
-    return Array.from(map.values()).filter((row) => Math.abs(row.amount) >= 0.01);
-  }, [bills, members]);
+  const centralSettlement = useMemo(
+    () => buildCentralSettlement(bills, payments),
+    [bills, payments]
+  );
 
-  // ยอดที่แต่ละ debtor "ต้องจ่ายรวม" (ทุก payer รวมกัน)
-  const totalDebtByDebtor = useMemo(() => {
-    const map = new Map();
-    summaryByPerson.forEach((row) => {
-      if (row.amount <= 0) return;
-      map.set(row.debtorId, (map.get(row.debtorId) || 0) + row.amount);
-    });
-    return map;
-  }, [summaryByPerson]);
+  useEffect(() => {
+    if (!isGroupRoute || !canManage || !group || centralSettlement.patches.length === 0) return;
 
-  // ซ่อนรายการที่ debtor ส่งสลิปและถูก finance approve ครบแล้ว
-  // (verified actualAmount จาก FinanceTab >= ยอดหนี้ทั้งหมดของคนนั้น)
-  const visibleSummary = useMemo(() => {
-    return summaryByPerson.filter((row) => {
-      const totalOwed = totalDebtByDebtor.get(row.debtorId) || 0;
-      const verifiedPaid = totalVerifiedPaid(row.debtorId, payments);
-      // อนุมัติครบยอดแล้ว → ซ่อนทุกบรรทัดของ debtor นี้
-      return verifiedPaid < totalOwed - 0.01;
-    });
-  }, [summaryByPerson, totalDebtByDebtor, payments]);
+    const syncKey = JSON.stringify(
+      centralSettlement.patches.map((patch) => [
+        patch.billId,
+        patch.participants.map((participant) => [
+          participant.userId,
+          roundMoney(participant.paid),
+          roundMoney(participant.centralSettledPaid),
+        ]),
+      ])
+    );
+    if (financeSyncKeyRef.current === syncKey) return;
 
-  const settledCount = summaryByPerson.length - visibleSummary.length;
+    let cancelled = false;
+    financeSyncKeyRef.current = syncKey;
+
+    (async () => {
+      try {
+        const syncedAt = new Date().toISOString();
+        await Promise.all(
+          centralSettlement.patches.map((patch) =>
+            updateBill(id, patch.billId, {
+              participants: patch.participants,
+              centralSettlementSyncedAt: syncedAt,
+              centralSettlementSyncedBy: syncActorId,
+            })
+          )
+        );
+        if (!cancelled) setBills(centralSettlement.bills);
+      } catch (err) {
+        console.error("sync central settlement failed", err);
+        financeSyncKeyRef.current = "";
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [canManage, centralSettlement, group, id, isGroupRoute, syncActorId]);
+
+  const rawSummaryByPerson = useMemo(
+    () => buildDebtSummary(withoutCentralSettlement(bills), members),
+    [bills, members]
+  );
+
+  const visibleSummary = useMemo(
+    () => buildDebtSummary(centralSettlement.bills, members),
+    [centralSettlement.bills, members]
+  );
+
+  const settledCount = Math.max(0, rawSummaryByPerson.length - visibleSummary.length);
 
   const totalRemaining = useMemo(
     () => visibleSummary.reduce((sum, row) => sum + Math.max(0, row.amount), 0),
     [visibleSummary]
   );
 
+  const financeHistoryLogs = useMemo(() => {
+    const paymentLogs = payments.map((payment) => {
+      const allocations = getPaymentAllocations(payment);
+      return {
+        id: `finance-pay-${payment.id}`,
+        type: paymentHistoryType(payment.status),
+        amount: roundMoney(payment.actualAmount ?? payment.amount),
+        fromName: payment.userName || "สมาชิก",
+        toName: "บัญชีกลาง",
+        createdAt: payment.reviewedAt || payment.createdAt,
+        createdByName: payment.reviewedByName || "",
+        detail: allocations
+          .map((allocation) => `${allocation.userName} ${money(allocation.amount)}`)
+          .join(" · "),
+      };
+    });
+
+    const payoutLogs = payouts.map((payout) => ({
+      id: `finance-payout-${payout.id}`,
+      type: payoutHistoryType(payout.status),
+      amount: roundMoney(payout.amount),
+      fromName: "บัญชีกลาง",
+      toName: payout.toUserName || "สมาชิก",
+      createdAt: payout.confirmedAt || payout.createdAt,
+      createdByName: payout.createdByName || "",
+      detail: payout.status === "confirmed" ? "ผู้รับยืนยันแล้ว" : "รอยืนยันรับเงิน",
+    }));
+
+    return [...paymentLogs, ...payoutLogs];
+  }, [payments, payouts]);
+
   const allPaymentLogs = useMemo(
-    () =>
-      bills
-        .flatMap((bill) =>
-          (bill.paymentLogs || []).map((log) => ({
+    () => [
+      ...bills.flatMap((bill) =>
+        (bill.paymentLogs || [])
+          .filter((log) => log.type !== "bill_created")
+          .map((log) => ({
             ...log,
             billId: bill.id,
             billTitle: log.billTitle || bill.title,
           }))
-        )
-        .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0)),
-    [bills]
+      ),
+      ...financeHistoryLogs,
+    ].sort((a, b) => toMillis(b.createdAt) - toMillis(a.createdAt)),
+    [bills, financeHistoryLogs]
   );
+
+  const historyFilterCounts = useMemo(() => {
+    const counts = { all: allPaymentLogs.length, payment: 0, payout: 0, bill: 0 };
+    allPaymentLogs.forEach((log) => {
+      counts[historyFilterKey(log)] += 1;
+    });
+    return counts;
+  }, [allPaymentLogs]);
+
+  const filteredPaymentLogs = useMemo(
+    () =>
+      historyFilter === "all"
+        ? allPaymentLogs
+        : allPaymentLogs.filter((log) => historyFilterKey(log) === historyFilter),
+    [allPaymentLogs, historyFilter]
+  );
+
+  const historyTotalPages = Math.max(1, Math.ceil(filteredPaymentLogs.length / HISTORY_PAGE_SIZE));
+  const currentHistoryPage = Math.min(historyPage, historyTotalPages);
+  const visiblePaymentLogs = useMemo(() => {
+    const start = (currentHistoryPage - 1) * HISTORY_PAGE_SIZE;
+    return filteredPaymentLogs.slice(start, start + HISTORY_PAGE_SIZE);
+  }, [currentHistoryPage, filteredPaymentLogs]);
+  const historyRangeStart = filteredPaymentLogs.length === 0
+    ? 0
+    : (currentHistoryPage - 1) * HISTORY_PAGE_SIZE + 1;
+  const historyRangeEnd = Math.min(
+    filteredPaymentLogs.length,
+    currentHistoryPage * HISTORY_PAGE_SIZE
+  );
+
+  useEffect(() => {
+    if (historyPage > historyTotalPages) {
+      setHistoryPage(historyTotalPages);
+    }
+  }, [historyPage, historyTotalPages]);
+
+  const handleSyncFinanceHistory = async () => {
+    if (!canManage || syncingFinance) return;
+    setSyncingFinance(true);
+    try {
+      const [nextBills, nextPayments, nextPayouts] = await Promise.all([
+        getBills(id),
+        getPayments(id).catch(() => []),
+        getPayouts(id).catch(() => []),
+      ]);
+      const settlement = buildCentralSettlement(nextBills, nextPayments);
+      const syncedAt = new Date().toISOString();
+      if (settlement.patches.length > 0) {
+        await Promise.all(
+          settlement.patches.map((patch) =>
+            updateBill(id, patch.billId, {
+              participants: patch.participants,
+              centralSettlementSyncedAt: syncedAt,
+              centralSettlementSyncedBy: syncActorId,
+            })
+          )
+        );
+      }
+      setBills(settlement.bills);
+      setPayments(nextPayments);
+      setPayouts(nextPayouts);
+      Swal.fire({
+        toast: true,
+        position: "top",
+        icon: "success",
+        title: `Sync แล้ว: ชำระ ${nextPayments.length} / จ่ายคืน ${nextPayouts.length}`,
+        showConfirmButton: false,
+        timer: 1600,
+      });
+    } catch (err) {
+      console.error(err);
+      Swal.fire("Sync ไม่สำเร็จ", "โหลดประวัติการเงินย้อนหลังไม่สำเร็จ", "error");
+    } finally {
+      setSyncingFinance(false);
+    }
+  };
 
   const updateForm = (field, value) => {
     setForm((current) => ({ ...current, [field]: value }));
@@ -295,6 +675,7 @@ function BillManager() {
   };
 
   const openCreateForm = () => {
+    if (!canCreateBill) return;
     setForm({
       ...emptyBill,
       payerId: user?.userId || members[0]?.userId || "",
@@ -375,6 +756,14 @@ function BillManager() {
 
   const handleSubmit = async (event) => {
     event.preventDefault();
+    if (editingId && !canManage) {
+      Swal.fire("ไม่มีสิทธิ์", "เฉพาะเจ้าของกลุ่มหรือผู้ดูแลการเงินเท่านั้นที่แก้ไขบิลได้", "warning");
+      return;
+    }
+    if (!editingId && !canCreateBill) {
+      Swal.fire("ไม่มีสิทธิ์", "เฉพาะสมาชิกในกลุ่มเท่านั้นที่สร้างบิลได้", "warning");
+      return;
+    }
     const amount = Number(form.amount || 0);
     if (!form.title.trim() || amount <= 0 || !form.payerId || form.participants.length === 0) {
       Swal.fire("ข้อมูลไม่ครบ", "กรอกชื่อบิล ยอดรวม ผู้จ่าย และสมาชิกที่ร่วมบิล", "info");
@@ -443,6 +832,7 @@ function BillManager() {
   };
 
   const handleEdit = (bill) => {
+    if (!canManage) return;
     setEditingId(bill.id);
     setActiveBillId(bill.id);
     setForm({
@@ -463,6 +853,7 @@ function BillManager() {
   };
 
   const handleDelete = async (billId) => {
+    if (!canManage) return;
     const result = await Swal.fire({
       icon: "warning",
       title: "ลบบิลนี้?",
@@ -493,87 +884,6 @@ function BillManager() {
       width: 680,
     });
   };
-
-  // === Payment editing ===
-
-  const draftFor = (bill, userId) => {
-    const drafts = paidDrafts[bill.id];
-    if (drafts && Object.prototype.hasOwnProperty.call(drafts, userId)) {
-      return drafts[userId];
-    }
-    const p = bill.participants?.find((x) => x.userId === userId);
-    return Number(p?.paid || 0);
-  };
-
-  const setDraft = (billId, userId, value) => {
-    setPaidDrafts((prev) => ({
-      ...prev,
-      [billId]: { ...(prev[billId] || {}), [userId]: value },
-    }));
-  };
-
-  const markPaidFull = (bill, p) => {
-    setDraft(bill.id, p.userId, Number(p.share || 0));
-  };
-
-  const markPaidZero = (bill, p) => {
-    setDraft(bill.id, p.userId, 0);
-  };
-
-  const hasUnsavedPayments = (bill) => {
-    const drafts = paidDrafts[bill.id];
-    if (!drafts) return false;
-    return Object.entries(drafts).some(([uid, v]) => {
-      const p = bill.participants?.find((x) => x.userId === uid);
-      return Number(p?.paid || 0) !== Number(v || 0);
-    });
-  };
-
-  const savePayments = async (bill) => {
-    const drafts = paidDrafts[bill.id] || {};
-    const updatedParticipants = (bill.participants || []).map((p) => ({
-      ...p,
-      paid: Object.prototype.hasOwnProperty.call(drafts, p.userId)
-        ? Number(drafts[p.userId]) || 0
-        : Number(p.paid) || 0,
-    }));
-    try {
-      setSavingPayments(true);
-      await updateBill(id, bill.id, {
-        ...bill,
-        participants: updatedParticipants,
-        updatedBy: user.userId,
-      });
-      setBills((prev) =>
-        prev.map((b) =>
-          b.id === bill.id ? { ...b, participants: updatedParticipants } : b
-        )
-      );
-      setPaidDrafts((prev) => {
-        const next = { ...prev };
-        delete next[bill.id];
-        return next;
-      });
-      Swal.fire({
-        toast: true, position: "top", icon: "success",
-        title: "บันทึกการชำระแล้ว", showConfirmButton: false, timer: 1400,
-      });
-    } catch (err) {
-      console.error(err);
-      Swal.fire("เกิดข้อผิดพลาด", "บันทึกการชำระไม่สำเร็จ", "error");
-    } finally {
-      setSavingPayments(false);
-    }
-  };
-
-  const discardPayments = (billId) => {
-    setPaidDrafts((prev) => {
-      const next = { ...prev };
-      delete next[billId];
-      return next;
-    });
-  };
-
 
   // === Render group picker (no group route) ===
 
@@ -613,9 +923,6 @@ function BillManager() {
   if (loading) return <div className="soft-card empty-state">กำลังโหลดค่าใช้จ่าย...</div>;
   if (!group) return <div className="soft-card empty-state">ไม่พบกลุ่มนี้</div>;
 
-  // เฉพาะเจ้าของกลุ่ม + ฝ่ายการเงิน → จัดการบิล/payment ได้
-  const canManage = isFinance(group, user?.userId);
-
   // active bill share summary
   const activeBillSummary = (() => {
     if (!activeBill) return null;
@@ -639,16 +946,19 @@ function BillManager() {
           <h1 className="page-title">ค่าใช้จ่าย</h1>
           <p className="page-subtitle">
             {group.name}
-            {!canManage && (
+            {!canCreateBill && (
               <span className="badge text-bg-light ms-2">โหมดดูอย่างเดียว</span>
             )}
           </p>
         </div>
-        {canManage && (
-          <button className="btn btn-success px-4" onClick={openCreateForm}>
-            + เพิ่มบิล
-          </button>
-        )}
+        <div className="d-flex gap-2 align-items-center flex-wrap">
+          <PageGuideButton steps={GUIDE_STEPS} />
+          {canCreateBill && (
+            <button className="btn btn-success px-4" onClick={openCreateForm} data-guide="bill-add-btn">
+              + เพิ่มบิล
+            </button>
+          )}
+        </div>
       </section>
 
       {/* Compact stat strip — ทุกอย่างในแถวเดียว ไม่มีหน่วย */}
@@ -671,7 +981,7 @@ function BillManager() {
         </div>
       </section>
 
-      {showForm && canManage && (
+      {showForm && canCreateBill && (
         <form className="soft-card p-3 p-md-4 mt-3" onSubmit={handleSubmit}>
           <div className="d-flex justify-content-between align-items-start gap-3 mb-3">
             <div className="min-w-0">
@@ -856,7 +1166,7 @@ function BillManager() {
       )}
 
       <section className="expense-layout mt-3">
-        <div className="soft-card p-3 p-md-4">
+        <div className="soft-card p-3 p-md-4" data-guide="bill-list">
           <div className="d-flex justify-content-between align-items-center gap-3 mb-3">
             <h2 className="h5 fw-bold mb-0">รายการบิล</h2>
             <span className="badge text-bg-light">{bills.length}</span>
@@ -1004,17 +1314,30 @@ function BillManager() {
           )}
         </div>
 
-        <aside className="soft-card p-3 p-md-4">
-          <h2 className="h5 fw-bold mb-1">สรุปยอดต้องชำระ</h2>
+        <aside className="soft-card p-3 p-md-4" data-guide="bill-summary">
+          <div className="d-flex justify-content-between align-items-start gap-2 mb-2">
+            <h2 className="h5 fw-bold mb-0">สรุปยอดต้องชำระ</h2>
+            {canManage && (
+              <button
+                type="button"
+                className="btn btn-sm btn-light border"
+                onClick={handleSyncFinanceHistory}
+                disabled={syncingFinance}
+                title="เช็คประวัติการชำระและการจ่ายย้อนหลัง"
+              >
+                {syncingFinance ? "กำลัง Sync..." : "Sync"}
+              </button>
+            )}
+          </div>
           {settledCount > 0 && (
             <p className="text-muted small mb-2">
               <span className="badge text-bg-success me-1">✓</span>
-              ซ่อน {settledCount} รายการที่ฝ่ายการเงินอนุมัติแล้ว
+              หัก {settledCount} รายการที่ชำระหรือหักล้างผ่านบัญชีกลางแล้ว
             </p>
           )}
           {visibleSummary.length === 0 ? (
             <p className="text-muted mb-0 small">
-              {summaryByPerson.length === 0
+              {rawSummaryByPerson.length === 0
                 ? "ทุกบิลชำระสมดุลแล้ว"
                 : "ทุกคนชำระและได้รับอนุมัติครบแล้ว ✓"}
             </p>
@@ -1039,29 +1362,80 @@ function BillManager() {
             </div>
           )}
 
-          <div className="bill-log-panel">
-            <h2 className="h5 fw-bold">ประวัติการชำระทั้งหมด</h2>
-            {allPaymentLogs.length === 0 ? (
-              <p className="text-muted mb-0 small">ยังไม่มี logs การชำระ</p>
-            ) : (
-              <div className="bill-log-list">
-                {allPaymentLogs.map((log) => (
-                  <article key={`${log.billId}-${log.id}`} className={`bill-log-row type-${log.type}`}>
-                    <div className="bill-log-main">
-                      <strong>{paymentLogText(log)}</strong>
-                      <small>
-                        {formatLogTime(log.createdAt)}
-                        {log.createdByName && ` · บันทึกโดย ${log.createdByName}`}
-                      </small>
-                    </div>
-                    {Number(log.amount) > 0 && (
-                      <span className="bill-log-amount">{money(log.amount)}</span>
-                    )}
-                  </article>
-                ))}
+          {allPaymentLogs.length > 0 && (
+            <div className="bill-log-panel">
+              <div className="bill-log-head">
+                <div className="min-w-0">
+                  <h2 className="h5 fw-bold mb-1">ประวัติการชำระทั้งหมด</h2>
+                  <small>
+                    แสดง {historyRangeStart}-{historyRangeEnd} จาก {filteredPaymentLogs.length} รายการ
+                  </small>
+                </div>
+                <div className="bill-log-filters" role="group" aria-label="กรองประวัติการชำระ">
+                  {HISTORY_FILTERS.map((filter) => (
+                    <button
+                      key={filter.id}
+                      type="button"
+                      className={`bill-log-filter ${historyFilter === filter.id ? "is-active" : ""}`}
+                      onClick={() => {
+                        setHistoryFilter(filter.id);
+                        setHistoryPage(1);
+                      }}
+                    >
+                      <span>{filter.label}</span>
+                      <small>{historyFilterCounts[filter.id] || 0}</small>
+                    </button>
+                  ))}
+                </div>
               </div>
-            )}
-          </div>
+
+              <div className="bill-log-list">
+                {visiblePaymentLogs.length === 0 ? (
+                  <p className="text-muted mb-0 small">ไม่มีประวัติในตัวกรองนี้</p>
+                ) : (
+                  visiblePaymentLogs.map((log) => (
+                    <article key={`${log.billId || "finance"}-${log.id}`} className={`bill-log-row type-${log.type}`}>
+                      <div className="bill-log-main">
+                        <strong>{paymentLogText(log)}</strong>
+                        <small>
+                          {formatLogTime(log.createdAt)}
+                          {log.createdByName && ` · บันทึกโดย ${log.createdByName}`}
+                          {log.detail && ` · ${log.detail}`}
+                        </small>
+                      </div>
+                      {Number(log.amount) > 0 && (
+                        <span className="bill-log-amount">{money(log.amount)}</span>
+                      )}
+                    </article>
+                  ))
+                )}
+              </div>
+
+              {filteredPaymentLogs.length > HISTORY_PAGE_SIZE && (
+                <div className="bill-log-pager">
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-light border"
+                    onClick={() => setHistoryPage((page) => Math.max(1, page - 1))}
+                    disabled={currentHistoryPage <= 1}
+                  >
+                    ก่อนหน้า
+                  </button>
+                  <span>
+                    หน้า {currentHistoryPage} / {historyTotalPages}
+                  </span>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-light border"
+                    onClick={() => setHistoryPage((page) => Math.min(historyTotalPages, page + 1))}
+                    disabled={currentHistoryPage >= historyTotalPages}
+                  >
+                    ถัดไป
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </aside>
       </section>
 
