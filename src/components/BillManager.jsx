@@ -445,6 +445,12 @@ function BillManager() {
     [bills, payments]
   );
 
+  // ใช้ settled bills เพื่อแสดงสถานะจ่าย/ไม่จ่ายที่ถูกต้องโดยไม่ต้องรอ Sync
+  const settledActiveBill = useMemo(
+    () => centralSettlement.bills.find((b) => b.id === activeBill?.id) || activeBill,
+    [centralSettlement.bills, activeBill]
+  );
+
   useEffect(() => {
     if (!isGroupRoute || !canManage || !group || centralSettlement.patches.length === 0) return;
 
@@ -1169,7 +1175,18 @@ function BillManager() {
         <div className="soft-card p-3 p-md-4" data-guide="bill-list">
           <div className="d-flex justify-content-between align-items-center gap-3 mb-3">
             <h2 className="h5 fw-bold mb-0">รายการบิล</h2>
-            <span className="badge text-bg-light">{bills.length}</span>
+            <div className="d-flex align-items-center gap-2">
+              <span className="badge text-bg-light">{bills.length}</span>
+              <button
+                type="button"
+                className="btn btn-sm btn-light border"
+                onClick={canManage ? handleSyncFinanceHistory : () => fetchGroupBills(id)}
+                disabled={syncingFinance}
+                title="ซิงก์สถานะการจ่ายล่าสุด"
+              >
+                {syncingFinance ? "กำลัง Sync..." : "↺ Sync"}
+              </button>
+            </div>
           </div>
 
           {bills.length === 0 ? (
@@ -1240,7 +1257,7 @@ function BillManager() {
                       <small>{activeBill.participants?.length || 0} คน</small>
                     </div>
 
-                    {[...(activeBill.participants || [])]
+                    {[...(settledActiveBill.participants || [])]
                       .sort((a, b) => {
                         // ชื่อตัวเองขึ้นก่อน, แล้วผู้จ่ายเงิน, ที่เหลือคงลำดับเดิม
                         if (a.userId === user?.userId) return -1;
@@ -1251,6 +1268,24 @@ function BillManager() {
                       })
                       .map((p) => {
                       const isPayer = p.userId === activeBill.payerId;
+                      const pShare = roundMoney(Number(p.share || 0));
+                      const pPaid = roundMoney(Number(p.paid || 0));
+                      const hasPaid = !isPayer && pShare > 0 && pPaid >= pShare - 0.01;
+                      const isPartial = !isPayer && pPaid > 0.01 && !hasPaid;
+                      const payStatusClass = isPayer
+                        ? "pay-status-paid"
+                        : hasPaid
+                          ? "pay-status-paid"
+                          : isPartial
+                            ? "pay-status-partial"
+                            : "pay-status-unpaid";
+                      const payStatusLabel = isPayer
+                        ? "ผู้ออกเงิน"
+                        : hasPaid
+                          ? "✓ จ่ายแล้ว"
+                          : isPartial
+                            ? `จ่าย ${money(pPaid)}`
+                            : "ยังไม่จ่าย";
                       return (
                         <div
                           key={p.userId}
@@ -1265,11 +1300,14 @@ function BillManager() {
                               />
                               <div className="min-w-0">
                                 <strong>{p.name}</strong>
-                                <small>ส่วนแบ่ง {money(p.share)}</small>
+                                <small>
+                                  ส่วนแบ่ง {money(pShare)}
+                                  {!isPayer && isPartial && ` · เหลือ ${money(roundMoney(pShare - pPaid))}`}
+                                </small>
                               </div>
                             </div>
-                            <span className={`pay-status ${isPayer ? "pay-status-paid" : "pay-status-member"}`}>
-                              {isPayer ? "ผู้ออกเงิน" : "ร่วมบิล"}
+                            <span className={`pay-status ${payStatusClass}`}>
+                              {payStatusLabel}
                             </span>
                           </div>
                         </div>

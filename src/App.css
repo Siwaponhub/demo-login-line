@@ -2130,6 +2130,152 @@ img:not(.img-viewer-img) {
   }
 }
 
+/* ===== Payment person→bill accordion ===== */
+.payment-person-bill-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.payment-person-block {
+  border: 1.5px solid var(--border-color);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.payment-person-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  background: var(--surface-card);
+  border: none;
+  padding: 10px 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.payment-person-header:hover { background: var(--surface-mute); }
+.payment-person-header.has-selection { background: rgba(6, 199, 85, 0.08); }
+.payment-person-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.payment-person-info strong { font-size: 0.9rem; }
+.payment-person-info small { color: var(--text-muted); font-size: 0.78rem; }
+.payment-person-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #06c755;
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.payment-person-chevron {
+  color: var(--text-muted);
+  font-size: 1.1rem;
+  transition: transform 0.2s;
+  display: inline-block;
+  flex-shrink: 0;
+}
+.payment-person-chevron.is-up { transform: rotate(-90deg); }
+.payment-bill-list {
+  border-top: 1px solid var(--border-color);
+  background: var(--surface-mute);
+}
+.payment-bill-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border-color);
+  transition: background 0.12s;
+}
+.payment-bill-row:last-child { border-bottom: none; }
+.payment-bill-row:hover { background: var(--surface-card); }
+.payment-bill-row.is-on { background: rgba(6, 199, 85, 0.1); }
+.payment-bill-select-all {
+  background: var(--surface-card);
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.payment-bill-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.88rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.payment-bill-amount {
+  font-size: 0.88rem;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.payment-bill-amount small { color: var(--text-muted); font-weight: 400; }
+.payment-bill-empty {
+  padding: 10px 14px;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  margin: 0;
+}
+.payment-summary-total {
+  border-top: 1px solid var(--border-color);
+  padding-top: 8px;
+  margin-top: 4px;
+}
+
+/* ===== Finance closed banner ===== */
+.finance-closed-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: rgba(6, 199, 85, 0.12);
+  border: 1.5px solid rgba(6, 199, 85, 0.35);
+}
+.finance-closed-banner-body {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.finance-closed-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(6, 199, 85, 0.2);
+  color: #06a346;
+  font-size: 1.1rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.finance-settle-prompt {
+  border: 1.5px solid rgba(6, 199, 85, 0.3) !important;
+}
+/* dot บน tab การเงิน */
+.finance-tab-closed-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #06c755;
+  margin-left: 4px;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
 @media (max-width: 540px) {
   .me-stats {
     grid-template-columns: 1fr;

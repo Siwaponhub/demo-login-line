@@ -630,7 +630,12 @@ function GroupDetail() {
             onClick={() => handleTabChange(tab.id)}
           >
             <span className="group-tab-icon">{tab.icon}</span>
-            <span className="group-tab-label">{tab.label}</span>
+            <span className="group-tab-label">
+              {tab.label}
+              {tab.id === "finance" && group?.financeClosed && (
+                <span className="finance-tab-closed-dot" title="ปิดบิลแล้ว" />
+              )}
+            </span>
           </button>
         ))}
       </nav>
@@ -709,7 +714,11 @@ function GroupDetail() {
         )}
 
         {activeTab === "finance" && (
-          <FinanceTab group={group} gid={id} />
+          <FinanceTab
+            group={group}
+            gid={id}
+            onGroupUpdate={(patch) => setGroup((g) => ({ ...g, ...patch }))}
+          />
         )}
 
         {activeTab === "settings" && canManageFinanceSettings && (
