@@ -13,6 +13,7 @@ import GroupDetail from "./components/GroupDetail";
 import CalendarGroups from "./components/CalendarGroups";
 import GuideMenu from "./components/GuideMenu";
 import GuideTutorial from "./components/GuideTutorial";
+import AdminPanel from "./components/AdminPanel";
 import { useAuth } from "./AuthContext";
 
 function App() {
@@ -52,6 +53,7 @@ function App() {
         <Route path="/profile" element={withAuth(<Profile />)} />
         <Route path="/creategroup" element={withAuth(<CreateGroup />)} />
         <Route path="/guide" element={withAuth(<GuideMenu />)} />
+        <Route path="/admin" element={withAuth(<AdminPanel />)} />
         {/* <Route path="/join" element={withAuth(JoinGroup)} /> */}
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>

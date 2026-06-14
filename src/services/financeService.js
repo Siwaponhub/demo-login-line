@@ -205,7 +205,7 @@ export function getOverpaid(memberRow, payments) {
 export function getPayoutRemaining(memberRow, payouts, payments = []) {
   if (memberRow.net <= 0.01 && !payments.length) return 0;
   const paidIn = totalVerifiedPaid(memberRow.userId, payments);
-  const credit = roundMoney(Math.max(0, memberRow.net) + paidIn);
+  const credit = roundMoney(Math.max(0, memberRow.net + paidIn));
   if (credit <= 0.01) return 0;
   const sent = payouts
     .filter((p) => p.toUserId === memberRow.userId)

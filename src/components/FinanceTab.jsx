@@ -704,10 +704,10 @@ function FinanceTab({ group, gid, onGroupUpdate = () => {} }) {
               <div><small>จ่ายเข้ากลางแล้ว</small><strong>{money(paidIn)}</strong></div>
               <div>
                 <small>
-                  {me.net >= 0 ? "รอรับคืน (คงเหลือ)" : overpaid > 0 ? "จ่ายเกิน" : "ค้างจ่าย (คงเหลือ)"}
+                  {payoutRem > 0 ? "รอรับคืน (คงเหลือ)" : outstanding > 0 ? "ค้างจ่าย (คงเหลือ)" : "จ่ายครบแล้ว"}
                 </small>
-                <strong className={me.net >= 0 || overpaid > 0 ? "text-success" : "text-danger"}>
-                  {money(me.net >= 0 ? payoutRem : overpaid > 0 ? overpaid : outstanding)}
+                <strong className={payoutRem > 0 ? "text-success" : outstanding > 0 ? "text-danger" : "text-muted"}>
+                  {money(payoutRem > 0 ? payoutRem : outstanding)}
                 </strong>
               </div>
             </div>
@@ -767,16 +767,16 @@ function FinanceTab({ group, gid, onGroupUpdate = () => {} }) {
                       </span>
                     )}
                     {r.net < -0.01 && (
-                      <span className={`${overpaid > 0 ? "text-primary" : outstanding > 0 ? "text-danger" : "text-success"} fw-bold`}>
+                      <span className={`${overpaid > 0 ? "text-success" : outstanding > 0 ? "text-danger" : "text-success"} fw-bold`}>
                         {overpaid > 0
-                          ? `จ่ายเกิน ${money(overpaid)}`
+                          ? `+ ${money(payoutRem)} (รอรับคืน)`
                           : outstanding > 0
                             ? `เหลือ ${money(outstanding)} / ${money(Math.abs(r.net))} (ต้องจ่าย)`
                             : `จ่ายครบ ${money(Math.abs(r.net))}`}
                       </span>
                     )}
                     {Math.abs(r.net) < 0.01 && <span className="text-muted">สมดุล</span>}
-                    {r.net > 0.01 && payoutRem > 0.01 && (
+                    {payoutRem > 0.01 && (
                       <button className="btn btn-sm btn-success" onClick={() => handleSendPayout(r)}>
                         โอนคืน + แนบสลิป
                       </button>

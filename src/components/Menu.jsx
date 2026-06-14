@@ -1,10 +1,17 @@
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../AuthContext";
 import { useTutorial } from "../TutorialContext";
+import { checkIsAdmin } from "../services/adminService";
 
 function Menu() {
   const { user, logout } = useAuth();
   const { replayWelcome } = useTutorial();
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    if (user?.userId) checkIsAdmin(user.userId).then(setIsAdmin);
+  }, [user?.userId]);
 
   const menuItems = [
     {
@@ -165,6 +172,15 @@ function Menu() {
       </section>
 
       <div className="menu-guide-bar">
+        {isAdmin && (
+          <Link to="/admin" className="menu-guide-link" style={{ color: "#dc3545" }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="11" width="18" height="11" rx="2" />
+              <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+            </svg>
+            แผงควบคุม Admin
+          </Link>
+        )}
         <Link to="/guide" className="menu-guide-link">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="12" cy="12" r="10" />
