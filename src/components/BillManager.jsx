@@ -1269,30 +1269,25 @@ function BillManager() {
                       .map((p) => {
                       const isPayer = p.userId === activeBill.payerId;
                       const pShare = roundMoney(Number(p.share || 0));
-                      const pPaid = manualPaid(p);  // เฉพาะเงินจ่ายตรง ไม่รวม centralSettled
-                      const pSettledTotal = roundMoney(Number(p.paid || 0));  // รวม centralSettled
+                      // แสดงสถานะตามเงินที่จ่ายตรงเท่านั้น (ไม่รวม central settlement)
+                      // การ netting / หักกลบแสดงอยู่ในหน้า Finance แล้ว
+                      const pPaid = manualPaid(p);
                       const hasPaid = !isPayer && pShare > 0 && pPaid >= pShare - 0.01;
-                      // หักกลบแล้ว = ระบบ net ออกให้แล้ว แต่ยังไม่ได้จ่ายตรง
-                      const isNetted = !isPayer && !hasPaid && pSettledTotal >= pShare - 0.01;
-                      const isPartial = !isPayer && pPaid > 0.01 && !hasPaid && !isNetted;
+                      const isPartial = !isPayer && pPaid > 0.01 && !hasPaid;
                       const payStatusClass = isPayer
                         ? "pay-status-paid"
                         : hasPaid
                           ? "pay-status-paid"
-                          : isNetted
+                          : isPartial
                             ? "pay-status-partial"
-                            : isPartial
-                              ? "pay-status-partial"
-                              : "pay-status-unpaid";
+                            : "pay-status-unpaid";
                       const payStatusLabel = isPayer
                         ? "ผู้ออกเงิน"
                         : hasPaid
                           ? "✓ จ่ายแล้ว"
-                          : isNetted
-                            ? "⇌ หักกลบแล้ว"
-                            : isPartial
-                              ? `จ่าย ${money(pPaid)}`
-                              : "ยังไม่จ่าย";
+                          : isPartial
+                            ? `จ่าย ${money(pPaid)}`
+                            : "ยังไม่จ่าย";
                       return (
                         <div
                           key={p.userId}
