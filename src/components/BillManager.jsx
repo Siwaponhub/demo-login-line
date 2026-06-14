@@ -218,10 +218,8 @@ function buildCentralSettlement(bills, payments) {
 
   const settleBudgetByUser = new Map();
   rawDebtTotals.forEach((rawDebtTotal, userId) => {
-    const netOwed = Math.max(0, roundMoney(-(balances.get(userId) || 0)));
     const verifiedPaid = verifiedMap.get(userId) || 0;
-    const desiredRemaining = Math.max(0, roundMoney(netOwed - verifiedPaid));
-    settleBudgetByUser.set(userId, Math.max(0, roundMoney(rawDebtTotal - desiredRemaining)));
+    settleBudgetByUser.set(userId, Math.min(rawDebtTotal, verifiedPaid));
   });
 
   const settledByParticipant = new Map();
