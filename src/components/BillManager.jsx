@@ -218,8 +218,10 @@ function buildCentralSettlement(bills, payments) {
 
   const settleBudgetByUser = new Map();
   rawDebtTotals.forEach((rawDebtTotal, userId) => {
+    const netOwed = Math.max(0, roundMoney(-(balances.get(userId) || 0)));
     const verifiedPaid = verifiedMap.get(userId) || 0;
-    settleBudgetByUser.set(userId, Math.min(rawDebtTotal, verifiedPaid));
+    const desiredRemaining = Math.max(0, roundMoney(netOwed - verifiedPaid));
+    settleBudgetByUser.set(userId, Math.max(0, roundMoney(rawDebtTotal - desiredRemaining)));
   });
 
   const settledByParticipant = new Map();
@@ -1267,23 +1269,30 @@ function BillManager() {
                       .map((p) => {
                       const isPayer = p.userId === activeBill.payerId;
                       const pShare = roundMoney(Number(p.share || 0));
-                      const pPaid = roundMoney(Number(p.paid || 0));
+                      const pPaid = manualPaid(p);  // เฉพาะเงินจ่ายตรง ไม่รวม centralSettled
+                      const pSettledTotal = roundMoney(Number(p.paid || 0));  // รวม centralSettled
                       const hasPaid = !isPayer && pShare > 0 && pPaid >= pShare - 0.01;
-                      const isPartial = !isPayer && pPaid > 0.01 && !hasPaid;
+                      // หักกลบแล้ว = ระบบ net ออกให้แล้ว แต่ยังไม่ได้จ่ายตรง
+                      const isNetted = !isPayer && !hasPaid && pSettledTotal >= pShare - 0.01;
+                      const isPartial = !isPayer && pPaid > 0.01 && !hasPaid && !isNetted;
                       const payStatusClass = isPayer
                         ? "pay-status-paid"
                         : hasPaid
                           ? "pay-status-paid"
-                          : isPartial
+                          : isNetted
                             ? "pay-status-partial"
-                            : "pay-status-unpaid";
+                            : isPartial
+                              ? "pay-status-partial"
+                              : "pay-status-unpaid";
                       const payStatusLabel = isPayer
                         ? "ผู้ออกเงิน"
                         : hasPaid
                           ? "✓ จ่ายแล้ว"
-                          : isPartial
-                            ? `จ่าย ${money(pPaid)}`
-                            : "ยังไม่จ่าย";
+                          : isNetted
+                            ? "⇌ หักกลบแล้ว"
+                            : isPartial
+                              ? `จ่าย ${money(pPaid)}`
+                              : "ยังไม่จ่าย";
                       return (
                         <div
                           key={p.userId}

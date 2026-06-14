@@ -188,17 +188,33 @@ function FinanceTab({ group, gid, onGroupUpdate = () => {} }) {
   const myAwaitingPayout = payouts.find(
     (p) => p.toUserId === user?.userId && p.status === "sent"
   );
+  // ยอดค้างต่อบิลจริง (share − paid) ต่อคน — ใช้แทน netting outstanding
+  // เพราะ netting ไม่นับเงินที่ได้รับกลับแล้ว ทำให้ payer ของบิลเก่ามี credit สูงเกินจริง
+  const perBillOutstanding = useMemo(() => {
+    const map = new Map();
+    (group?.members || []).forEach((m) => {
+      let total = 0;
+      bills.forEach((bill) => {
+        const p = (bill.participants || []).find((pt) => pt.userId === m.userId);
+        if (!p || bill.payerId === m.userId || Number(p.share || 0) <= 0) return;
+        total += Math.max(0, roundMoney(Number(p.share || 0) - Number(p.paid || 0)));
+      });
+      map.set(m.userId, roundMoney(total));
+    });
+    return map;
+  }, [bills, group]);
+
   const paymentTargetRows = useMemo(
     () =>
       memberRows
         .map((row) => ({
           ...row,
           paidIn: totalVerifiedPaid(row.userId, payments),
-          outstanding: getOutstanding(row, payments),
+          outstanding: perBillOutstanding.get(row.userId) || 0,
           overpaid: getOverpaid(row, payments),
         }))
         .filter((row) => row.outstanding > 0.01),
-    [memberRows, payments]
+    [memberRows, payments, perBillOutstanding]
   );
 
   // บิลที่แต่ละคนยังค้างจ่าย → { personId: [{billId, title, share, paid, remaining}] }
