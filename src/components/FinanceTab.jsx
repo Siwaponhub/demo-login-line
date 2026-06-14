@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Swal from "sweetalert2";
 import {
-  STATUS, attachGeminiCheck, closeFinance, computeNetting, confirmPayout,
+  STATUS, attachGeminiCheck, buildSettledBills, closeFinance, computeNetting, confirmPayout,
   deletePayment, deletePayout, deriveStatus, getOutstanding, getPayments,
   getPayouts, getOverpaid, getPaymentAllocations, getPayoutRemaining, isFinance,
   paymentTotalAmount, reopenFinance, reviewPayment, sendPayout, submitPayment,
@@ -188,13 +188,18 @@ function FinanceTab({ group, gid, onGroupUpdate = () => {} }) {
   const myAwaitingPayout = payouts.find(
     (p) => p.toUserId === user?.userId && p.status === "sent"
   );
-  // ยอดค้างต่อบิลจริง (share − paid) ต่อคน — ใช้แทน netting outstanding
-  // เพราะ netting ไม่นับเงินที่ได้รับกลับแล้ว ทำให้ payer ของบิลเก่ามี credit สูงเกินจริง
+  // คำนวณ bills ที่ settle ถูกต้องจาก verified payments เท่านั้น (ไม่ใช้ netting)
+  // ทำให้ไม่ขึ้นกับ Firestore ที่อาจมีข้อมูล centralSettledPaid เก่าค้างอยู่
+  const settledBills = useMemo(
+    () => buildSettledBills(bills, payments),
+    [bills, payments]
+  );
+
   const perBillOutstanding = useMemo(() => {
     const map = new Map();
     (group?.members || []).forEach((m) => {
       let total = 0;
-      bills.forEach((bill) => {
+      settledBills.forEach((bill) => {
         const p = (bill.participants || []).find((pt) => pt.userId === m.userId);
         if (!p || bill.payerId === m.userId || Number(p.share || 0) <= 0) return;
         total += Math.max(0, roundMoney(Number(p.share || 0) - Number(p.paid || 0)));
@@ -202,7 +207,7 @@ function FinanceTab({ group, gid, onGroupUpdate = () => {} }) {
       map.set(m.userId, roundMoney(total));
     });
     return map;
-  }, [bills, group]);
+  }, [settledBills, group]);
 
   const paymentTargetRows = useMemo(
     () =>
@@ -221,7 +226,7 @@ function FinanceTab({ group, gid, onGroupUpdate = () => {} }) {
   const personBills = useMemo(() => {
     const result = {};
     paymentTargetRows.forEach((person) => {
-      result[person.userId] = bills
+      result[person.userId] = settledBills
         .filter((bill) => {
           const p = (bill.participants || []).find((pt) => pt.userId === person.userId);
           return p && bill.payerId !== person.userId && Number(p.share || 0) > 0;

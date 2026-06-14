@@ -10,6 +10,78 @@ const paymentsRef = (gid) => collection(db, "groups", gid, "payments");
 const payoutsRef = (gid) => collection(db, "groups", gid, "payouts");
 const roundMoney = (value) => Math.round(Number(value || 0) * 100) / 100;
 
+// ====== SETTLEMENT HELPERS ======
+// คืนยอดที่จ่ายตรง (ไม่รวม centralSettled) ของ participant หนึ่งคน
+export function getManualPaid(participant) {
+  const central = roundMoney(
+    Number(participant.centralSettledPaid ?? participant.financePaid ?? 0)
+  );
+  return Math.max(0, roundMoney(Number(participant.paid || 0) - central));
+}
+
+// คำนวณ bills ที่ settle ผ่าน central pool จาก verified payments เท่านั้น
+// ผลลัพธ์: bills[] ที่ participant.paid สะท้อนเฉพาะ manualPaid + centralSettled จาก verified จริง
+export function buildSettledBills(bills, payments) {
+  const toMillis = (ts) => {
+    if (!ts) return 0;
+    const t = ts?.toDate ? ts.toDate().getTime() : new Date(ts).getTime();
+    return Number.isNaN(t) ? 0 : t;
+  };
+
+  // รวม verified payments ต่อ userId
+  const verifiedMap = new Map();
+  payments
+    .filter((p) => p.status === "verified")
+    .forEach((payment) => {
+      getPaymentAllocations(payment).forEach((alloc) => {
+        verifiedMap.set(alloc.userId, roundMoney((verifiedMap.get(alloc.userId) || 0) + alloc.amount));
+      });
+    });
+
+  const rawDebtTotals = new Map();
+  const debtRows = [];
+
+  [...bills]
+    .sort((a, b) => toMillis(a.createdAt) - toMillis(b.createdAt))
+    .forEach((bill) => {
+      (bill.participants || []).forEach((p) => {
+        if (p.userId === bill.payerId) return;
+        const share = roundMoney(Number(p.share || 0));
+        if (share <= 0) return;
+        const manual = getManualPaid(p);
+        const remaining = Math.max(0, roundMoney(share - manual));
+        if (remaining < 0.01) return;
+        debtRows.push({ billId: bill.id, userId: p.userId, remaining });
+        rawDebtTotals.set(p.userId, roundMoney((rawDebtTotals.get(p.userId) || 0) + remaining));
+      });
+    });
+
+  // budget = เงินที่จ่ายจริงเข้า pool เท่านั้น (ไม่ใช้ netting)
+  const budgetByUser = new Map();
+  rawDebtTotals.forEach((rawTotal, userId) => {
+    budgetByUser.set(userId, Math.min(rawTotal, verifiedMap.get(userId) || 0));
+  });
+
+  const settledByPair = new Map();
+  debtRows.forEach((row) => {
+    const budget = budgetByUser.get(row.userId) || 0;
+    if (budget <= 0) return;
+    const settled = Math.min(row.remaining, budget);
+    budgetByUser.set(row.userId, roundMoney(budget - settled));
+    settledByPair.set(`${row.billId}:${row.userId}`, roundMoney(settled));
+  });
+
+  return bills.map((bill) => ({
+    ...bill,
+    participants: (bill.participants || []).map((p) => {
+      if (p.userId === bill.payerId) return p;
+      const manual = getManualPaid(p);
+      const centralSettled = settledByPair.get(`${bill.id}:${p.userId}`) || 0;
+      return { ...p, paid: roundMoney(manual + centralSettled) };
+    }),
+  }));
+}
+
 // ====== NETTING CALCULATION (FR-1) ======
 // Input: bills[] + members[]
 // Output: per-member { userId, name, paid, share, net, role }
