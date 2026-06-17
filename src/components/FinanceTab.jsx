@@ -209,6 +209,28 @@ function FinanceTab({ group, gid, onGroupUpdate = () => {} }) {
     return map;
   }, [settledBills, group]);
 
+  const perBillPayables = useMemo(() => {
+    const map = new Map();
+    settledBills.forEach((bill) => {
+      const payer = (group?.members || []).find((m) => m.userId === bill.payerId);
+      const payerName = payer?.name || bill.payerName || "ผู้สำรองจ่าย";
+      (bill.participants || []).forEach((p) => {
+        if (p.userId === bill.payerId || Number(p.share || 0) <= 0) return;
+        const remaining = Math.max(0, roundMoney(Number(p.share || 0) - Number(p.paid || 0)));
+        if (remaining <= 0.01) return;
+        const rows = map.get(p.userId) || [];
+        const existing = rows.find((row) => row.payerId === bill.payerId);
+        if (existing) {
+          existing.amount = roundMoney(existing.amount + remaining);
+        } else {
+          rows.push({ payerId: bill.payerId, payerName, amount: remaining });
+        }
+        map.set(p.userId, rows);
+      });
+    });
+    return map;
+  }, [settledBills, group]);
+
   const paymentTargetRows = useMemo(
     () =>
       memberRows
@@ -764,8 +786,21 @@ function FinanceTab({ group, gid, onGroupUpdate = () => {} }) {
             {memberRows.map((r) => {
               const payoutRem = getPayoutRemaining(r, payouts, payments);
               const outstanding = getOutstanding(r, payments);
+              const billOutstanding = perBillOutstanding.get(r.userId) || 0;
+              const payableRows = perBillPayables.get(r.userId) || [];
+              const payableText = payableRows
+                .map((row) => `ต้องจ่ายให้ ${row.payerName} ${money(row.amount)}`)
+                .join(" · ");
               const paidIn = totalVerifiedPaid(r.userId, payments);
               const overpaid = getOverpaid(r, payments);
+              const refundTotal = roundMoney(Math.max(0, r.net + paidIn));
+              const refundPaid = Math.max(0, roundMoney(refundTotal - payoutRem));
+              const offsetApplied = Math.min(roundMoney(r.paid), roundMoney(r.share));
+              const netAfterOffsetLabel = r.net > 0.01
+                ? `รับคืนสุทธิ ${money(r.net)}`
+                : r.net < -0.01
+                  ? `ต้องจ่ายสุทธิ ${money(Math.abs(r.net))}`
+                  : "สมดุล";
               // บิลที่คนนี้เป็น payer → "ค่าอะไรบ้างที่ค้างคืน"
               const billsAsPayer = bills.filter((b) => b.payerId === r.userId);
               return (
@@ -784,16 +819,20 @@ function FinanceTab({ group, gid, onGroupUpdate = () => {} }) {
                   <div className="netting-net">
                     {r.net > 0.01 && (
                       <span className="text-success fw-bold">
-                        + {money(payoutRem)} {payoutRem < roundMoney(r.net + paidIn) ? `/ ${money(roundMoney(r.net + paidIn))}` : ""} (รอรับคืน)
+                        {payoutRem <= 0.01
+                          ? `รับคืนครบ ${money(refundPaid)} / ${money(refundTotal)}`
+                          : `รอรับคืน ${money(payoutRem)}`}
                       </span>
                     )}
                     {r.net < -0.01 && (
                       <span className={`${overpaid > 0 ? "text-success" : outstanding > 0 ? "text-danger" : "text-success"} fw-bold`}>
                         {overpaid > 0
-                          ? `+ ${money(payoutRem)} (รอรับคืน)`
+                          ? payoutRem <= 0.01
+                            ? `รับคืนครบ ${money(refundPaid)} / ${money(refundTotal)}`
+                            : `รอรับคืน ${money(payoutRem)}`
                           : outstanding > 0
-                            ? `เหลือ ${money(outstanding)} / ${money(Math.abs(r.net))} (ต้องจ่าย)`
-                            : `จ่ายครบ ${money(Math.abs(r.net))}`}
+                            ? `ค้างจ่าย ${money(outstanding)}`
+                            : `จ่ายครบ ${money(paidIn)} / ${money(Math.abs(r.net))}`}
                       </span>
                     )}
                     {Math.abs(r.net) < 0.01 && <span className="text-muted">สมดุล</span>}
@@ -803,6 +842,27 @@ function FinanceTab({ group, gid, onGroupUpdate = () => {} }) {
                       </button>
                     )}
                   </div>
+
+                  {billOutstanding > 0.01 && (
+                    <small className="d-block text-danger fw-semibold mt-1">
+                      ค้างจ่ายรายบิล {money(billOutstanding)}
+                      {payableText && ` · ${payableText}`}
+                    </small>
+                  )}
+
+                  <small className="d-block text-muted mt-1">
+                    {refundTotal > 0.01
+                      ? `โอนคืนแล้ว ${money(refundPaid)} / ${money(refundTotal)}`
+                      : r.net < -0.01
+                        ? `จ่ายเข้ากลางแล้ว ${money(paidIn)} / ${money(Math.abs(r.net))}`
+                        : `จ่ายเข้ากลางแล้ว ${money(paidIn)}`}
+                  </small>
+
+                  {offsetApplied > 0.01 && (
+                    <small className="d-block text-muted mt-1">
+                      ยอดหารทั้งหมด {money(r.share)} · หักกลบจากยอดสำรอง {money(offsetApplied)} · {netAfterOffsetLabel}
+                    </small>
+                  )}
 
                   {/* รายการบิลที่คนนี้สำรองจ่าย → "ค่าอะไรบ้าง" */}
                   {billsAsPayer.length > 0 && r.net > 0.01 && (
