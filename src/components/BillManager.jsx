@@ -4,7 +4,7 @@ import { collection, deleteField, doc, getDoc, getDocs } from "firebase/firestor
 import Swal from "sweetalert2";
 import { db } from "../firebase";
 import { createBill, deleteBill, getBills, updateBill } from "../services/billService";
-import { getPaymentAllocations, getPayments, getPayouts, isFinance } from "../services/financeService";
+import { buildSettledBills, getPaymentAllocations, getPayments, getPayouts, isFinance } from "../services/financeService";
 import { useAuth } from "../AuthContext";
 import { resizeImageToDataURL } from "../utils/image";
 import BackHomeButtons from "./BackHomeButtons";
@@ -459,10 +459,15 @@ function BillManager() {
     [bills, payments]
   );
 
+  const approvedPaymentBills = useMemo(
+    () => buildSettledBills(bills, payments),
+    [bills, payments]
+  );
+
   // ใช้ settled bills เพื่อแสดงสถานะจ่าย/ไม่จ่ายที่ถูกต้องโดยไม่ต้องรอ Sync
   const settledActiveBill = useMemo(
-    () => centralSettlement.bills.find((b) => b.id === activeBill?.id) || activeBill,
-    [centralSettlement.bills, activeBill]
+    () => approvedPaymentBills.find((b) => b.id === activeBill?.id) || activeBill,
+    [approvedPaymentBills, activeBill]
   );
 
   useEffect(() => {
@@ -513,8 +518,8 @@ function BillManager() {
   );
 
   const visibleSummary = useMemo(
-    () => buildDebtSummary(centralSettlement.bills, members),
-    [centralSettlement.bills, members]
+    () => buildDebtSummary(approvedPaymentBills, members),
+    [approvedPaymentBills, members]
   );
 
   const netBalanceByUser = useMemo(
@@ -1288,7 +1293,8 @@ function BillManager() {
                       .map((p) => {
                       const isPayer = p.userId === activeBill.payerId;
                       const pShare = roundMoney(Number(p.share || 0));
-                      const pPaid = manualPaid(p);
+                      // Count approved central payments as paid in the bill status.
+                      const pPaid = roundMoney(Number(p.paid || 0));
                       const hasPaid = !isPayer && pShare > 0 && pPaid >= pShare - 0.01;
                       const isPartial = !isPayer && pPaid > 0.01 && !hasPaid;
                       const thisDebt = roundMoney(Math.max(0, pShare - pPaid));
@@ -1401,14 +1407,14 @@ function BillManager() {
           {settledCount > 0 && (
             <p className="text-muted small mb-2">
               <span className="badge text-bg-success me-1">✓</span>
-              หัก {settledCount} รายการที่ชำระหรือหักล้างผ่านบัญชีกลางแล้ว
+              หัก {settledCount} รายการที่ชำระเข้าบัญชีกลางและอนุมัติแล้ว
             </p>
           )}
           {visibleSummary.length === 0 ? (
             <p className="text-muted mb-0 small">
               {rawSummaryByPerson.length === 0
                 ? "ทุกบิลชำระสมดุลแล้ว"
-                : "ทุกคนชำระและได้รับอนุมัติครบแล้ว ✓"}
+                : "ทุกคนชำระเข้าบัญชีกลางและได้รับอนุมัติครบแล้ว ✓"}
             </p>
           ) : (
             <div className="debt-list">
