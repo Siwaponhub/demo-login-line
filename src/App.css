@@ -972,6 +972,7 @@
 .pay-status-over { background: rgba(34, 139, 230, 0.18); color: #1864ab; }
 .pay-status-unpaid { background: rgba(250, 82, 82, 0.18); color: #c92a2a; }
 .pay-status-member { background: var(--surface-mute); color: var(--text-muted); }
+.pay-status-settled { background: rgba(35, 116, 171, 0.15); color: #1864ab; }
 
 .pay-row-input {
   display: grid;

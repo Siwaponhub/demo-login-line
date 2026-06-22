@@ -307,6 +307,20 @@ function buildDebtSummary(sourceBills, members) {
   return Array.from(map.values()).filter((row) => Math.abs(row.amount) >= 0.01);
 }
 
+function buildNetBalanceByUser(sourceBills) {
+  const net = new Map();
+  sourceBills.forEach((bill) => {
+    (bill.participants || []).forEach((participant) => {
+      if (participant.userId === bill.payerId) return;
+      const remaining = roundMoney(Number(participant.share || 0) - Number(participant.paid || 0));
+      if (Math.abs(remaining) < 0.01) return;
+      net.set(participant.userId, roundMoney((net.get(participant.userId) || 0) - remaining));
+      net.set(bill.payerId, roundMoney((net.get(bill.payerId) || 0) + remaining));
+    });
+  });
+  return net;
+}
+
 function paymentHistoryType(status) {
   if (status === "verified") return "finance_payment_verified";
   if (status === "rejected") return "finance_payment_rejected";
@@ -501,6 +515,11 @@ function BillManager() {
   const visibleSummary = useMemo(
     () => buildDebtSummary(centralSettlement.bills, members),
     [centralSettlement.bills, members]
+  );
+
+  const netBalanceByUser = useMemo(
+    () => buildNetBalanceByUser(centralSettlement.bills),
+    [centralSettlement.bills]
   );
 
   const settledCount = Math.max(0, rawSummaryByPerson.length - visibleSummary.length);
@@ -852,7 +871,7 @@ function BillManager() {
         email: p.email || "",
         picture: p.picture || "",
         share: Number(p.share) || 0,
-        paid: Number(p.paid) || 0,
+        paid: manualPaid(p),
       })),
     });
     setShowForm(true);
@@ -1269,25 +1288,35 @@ function BillManager() {
                       .map((p) => {
                       const isPayer = p.userId === activeBill.payerId;
                       const pShare = roundMoney(Number(p.share || 0));
-                      // แสดงสถานะตามเงินที่จ่ายตรงเท่านั้น (ไม่รวม central settlement)
-                      // การ netting / หักกลบแสดงอยู่ในหน้า Finance แล้ว
                       const pPaid = manualPaid(p);
                       const hasPaid = !isPayer && pShare > 0 && pPaid >= pShare - 0.01;
                       const isPartial = !isPayer && pPaid > 0.01 && !hasPaid;
-                      const payStatusClass = isPayer
-                        ? "pay-status-paid"
-                        : hasPaid
-                          ? "pay-status-paid"
-                          : isPartial
-                            ? "pay-status-partial"
-                            : "pay-status-unpaid";
-                      const payStatusLabel = isPayer
-                        ? "ผู้ออกเงิน"
-                        : hasPaid
-                          ? "✓ จ่ายแล้ว"
-                          : isPartial
-                            ? `จ่าย ${money(pPaid)}`
-                            : "ยังไม่จ่าย";
+                      const thisDebt = roundMoney(Math.max(0, pShare - pPaid));
+                      const netBalance = netBalanceByUser.get(p.userId) || 0;
+                      const canOffset = bills.length > 1 && !isPayer && !hasPaid && thisDebt > 0.01;
+
+                      let payStatusClass;
+                      let payStatusLabel;
+                      if (isPayer) {
+                        payStatusClass = "pay-status-paid";
+                        payStatusLabel = "ผู้ออกเงิน";
+                      } else if (hasPaid) {
+                        payStatusClass = "pay-status-paid";
+                        payStatusLabel = "✓ จ่ายแล้ว";
+                      } else if (canOffset && netBalance >= 0) {
+                        payStatusClass = "pay-status-settled";
+                        payStatusLabel = "หักลบแล้ว";
+                      } else if (canOffset && netBalance > -thisDebt) {
+                        payStatusClass = "pay-status-partial";
+                        payStatusLabel = `ค้างจ่าย ${money(-netBalance)}`;
+                      } else if (isPartial) {
+                        payStatusClass = "pay-status-partial";
+                        payStatusLabel = `จ่าย ${money(pPaid)}`;
+                      } else {
+                        payStatusClass = "pay-status-unpaid";
+                        payStatusLabel = "ยังไม่จ่าย";
+                      }
+
                       return (
                         <div
                           key={p.userId}
